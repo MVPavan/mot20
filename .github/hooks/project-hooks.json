@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "type": "command",
+        "command": ".github/hooks/block-dangerous-commands.sh",
+        "timeout": 10
+      }
+    ],
+    "sessionStart": [
+      {
+        "type": "command",
+        "command": ".github/hooks/bd-prime.sh",
+        "timeout": 30
+      }
+    ]
+  }
+}

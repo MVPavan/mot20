@@ -1,0 +1,49 @@
+# Python environments and caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Secrets and machine-local configuration
+.env
+**/.env
+*.local.yaml
+*.local.yml
+
+# MOT20 datasets and large model artifacts
+data/
+datasets/
+weights/
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.engine
+
+# Experiment and evaluation artifacts
+artifacts/
+outputs/
+runs/
+results/
+predictions/
+embeddings/
+logs/
+*.log
+
+# Local scratch space and editor files
+scratchpad/
+.vscode/
+.idea/
+.DS_Store
+
+# Beads runtime state (maintained by bd)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
