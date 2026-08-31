@@ -1,0 +1,11 @@
+{
+  "name": "MOT20 Test Manual Annotation",
+  "labels": [
+    {
+      "name": "pedestrian",
+      "type": "rectangle",
+      "color": "#E6194B",
+      "attributes": []
+    }
+  ]
+}

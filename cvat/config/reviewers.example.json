@@ -1,0 +1,9 @@
+{
+  "reviewers": [
+    {
+      "username": "annotator_1",
+      "email": "annotator_1@example.invalid",
+      "password_env": "CVAT_ANNOTATOR_1_PASSWORD"
+    }
+  ]
+}

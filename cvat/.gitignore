@@ -1,0 +1,6 @@
+.env
+config/reviewers.json
+config/reviewer-credentials.txt
+config/assignments.json
+backups/
+state/
