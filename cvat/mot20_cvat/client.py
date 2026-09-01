@@ -7,6 +7,22 @@ from typing import Any
 import requests
 
 
+def task_data_form() -> dict[str, str]:
+    """Return the scalar fields for CVAT's multipart task-data request."""
+    return {
+        "image_quality": "100",
+        "sorting_method": "lexicographical",
+        "use_zip_chunks": "true",
+    }
+
+
+def shared_file_fields(server_files: list[str]) -> dict[str, tuple[None, str]]:
+    """Encode shared-file paths as indexed multipart text fields for CVAT."""
+    if not server_files or any(not isinstance(path, str) or not path for path in server_files):
+        raise ValueError("server_files must be a non-empty list of paths")
+    return {f"server_files[{index}]": (None, path) for index, path in enumerate(server_files)}
+
+
 class CvatClient:
     """Small CVAT REST client with conservative idempotency checks."""
 
@@ -86,7 +102,7 @@ class CvatClient:
         task = self._check(self.session.post(f"{self.base}/api/tasks", json={"name": task_name, "project_id": project_id, "segment_size": len(image_names)}, timeout=self.timeout), f"create task {task_name}").json()
         task_id = full_id(task)
         try:
-            self._check(self.session.post(f"{self.base}/api/tasks/{task_id}/data", data={"server_files": server_files, "image_quality": "70", "sorting_method": "lexicographical", "use_zip_chunks": "true"}, headers={"Upload-Start": "true", "Upload-Finish": "true"}, timeout=self.timeout), f"upload task {task_name} images")
+            self._check(self.session.post(f"{self.base}/api/tasks/{task_id}/data", data=task_data_form(), files=shared_file_fields(server_files), headers={"Upload-Start": "true", "Upload-Finish": "true"}, timeout=self.timeout), f"upload task {task_name} images")
             self._wait_for_data(task_id)
             jobs = self._list("jobs", task_id=task_id)
             if len(jobs) != 1:

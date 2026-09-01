@@ -8,6 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from mot20_cvat.client import shared_file_fields, task_data_form  # noqa: E402
 from mot20_cvat.contracts import (  # noqa: E402
     build_task_plan,
     build_tracks,
@@ -18,6 +19,23 @@ from mot20_cvat.contracts import (  # noqa: E402
 
 
 class Mot20CvatContractsTest(unittest.TestCase):
+    def test_shared_files_use_cvat_indexed_form_fields(self) -> None:
+        self.assertEqual(
+            task_data_form(),
+            {
+                "image_quality": "100",
+                "sorting_method": "lexicographical",
+                "use_zip_chunks": "true",
+            },
+        )
+        self.assertEqual(
+            shared_file_fields(["mot20-test/MOT20-06/img1/000001.jpg", "mot20-test/MOT20-06/img1/000002.jpg"]),
+            {
+                "server_files[0]": (None, "mot20-test/MOT20-06/img1/000001.jpg"),
+                "server_files[1]": (None, "mot20-test/MOT20-06/img1/000002.jpg"),
+            },
+        )
+
     def make_dataset(self) -> Path:
         directory = Path(tempfile.mkdtemp()) / "test"
         for name, length in (("MOT20-04", 5), ("MOT20-06", 3)):

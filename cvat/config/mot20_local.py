@@ -6,6 +6,12 @@ import os
 from .production import *  # noqa: F403
 
 
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("CVAT_CSRF_TRUSTED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+
 disk_usage_max = int(os.getenv("CVAT_DISK_USAGE_MAX", "98"))
 if not 91 <= disk_usage_max <= 99:
     raise RuntimeError("CVAT_DISK_USAGE_MAX must be between 91 and 99")

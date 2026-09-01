@@ -10,6 +10,11 @@ The MOT20 image root is mounted read-only at
 CVAT's shared-folder ingestion, so image names remain `000001.jpg` through the
 official sequence length and pixels are not duplicated or changed.
 
+All task upload requests set CVAT's `image_quality` to `100`. This preserves
+the source resolution in the annotation view at CVAT's maximum JPEG quality;
+the separate CVAT original-image chunks retain the source JPEG bytes for the
+MOT20 images.
+
 ## One-time local setup
 
 Install the small REST dependency in the Python environment you will use:
