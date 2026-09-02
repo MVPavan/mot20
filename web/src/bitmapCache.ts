@@ -74,6 +74,37 @@ export class BitmapLru<T extends CloseableDrawable = DecodedFrame> {
   }
 }
 
+export class BitmapFrameLoader {
+  readonly #cache: BitmapLru;
+  readonly #pending = new Map<number, { controller: AbortController; promise: Promise<DecodedFrame> }>();
+
+  constructor(cache: BitmapLru) {
+    this.#cache = cache;
+  }
+
+  load(frame: number, url: string): Promise<DecodedFrame> {
+    const cached = this.#cache.get(frame);
+    if (cached !== undefined) return Promise.resolve(cached);
+    const pending = this.#pending.get(frame);
+    if (pending !== undefined) return pending.promise;
+
+    const controller = new AbortController();
+    const promise = decodeFrame(url, controller.signal)
+      .then((image) => {
+        this.#cache.set(frame, image);
+        return image;
+      })
+      .finally(() => this.#pending.delete(frame));
+    this.#pending.set(frame, { controller, promise });
+    return promise;
+  }
+
+  dispose(): void {
+    this.#pending.forEach(({ controller }) => controller.abort());
+    this.#pending.clear();
+  }
+}
+
 function abortError(): DOMException {
   return new DOMException("Frame request was superseded", "AbortError");
 }

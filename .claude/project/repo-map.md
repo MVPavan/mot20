@@ -22,7 +22,7 @@ Physical layout and navigation. Prefer repo-relative paths.
 | `src/mot20/viewer/` | Read-only source registry, API, track evidence, context, crops, events, and bounded export logic |
 | `web/src/` | React exact-frame review client and canvas overlays |
 | `web/e2e/` | Deterministic and opt-in real-data Playwright acceptance |
-| `configs/viewer.toml` | Authoritative configured viewer source catalog |
+| `configs/viewer.toml` | Explicit multi-source catalog used by real browser acceptance; normal selection uses server paths entered in the page |
 | `tests/viewer/` | Backend contracts, integrations, export tests, and local-data smoke checks |
 | `docs/viewer/` | Viewer operations, algorithms, measurements, and export documentation |
 | `artifacts/viewer/` | Ignored derived caches, exports, and verification records |

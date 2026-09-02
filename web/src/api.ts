@@ -52,6 +52,27 @@ export interface SequenceListResponse {
   diagnostics: Diagnostic[];
 }
 
+export interface SourcePathSelection {
+  images: string | null;
+  annotations: string | null;
+}
+
+export type SourcePathKind = "images" | "annotations";
+
+export interface SourcePathEntry {
+  path: string;
+  entry_type: "directory" | "file";
+}
+
+export interface SourcePathSuggestions {
+  kind: SourcePathKind;
+  query: string;
+  directory: string;
+  parent: string | null;
+  entries: SourcePathEntry[];
+  suggestions: string[];
+}
+
 export interface Observation {
   source_key: string;
   sequence: string;
@@ -208,6 +229,50 @@ export async function fetchSequences(signal?: AbortSignal): Promise<SequenceList
   const response = await fetch("/api/sequences", { signal });
   if (!response.ok) {
     throw new Error(`Source metadata request failed (${response.status})`);
+  }
+  return (await response.json()) as SequenceListResponse;
+}
+
+export async function fetchSourceSelection(signal?: AbortSignal): Promise<SourcePathSelection> {
+  const response = await fetch("/api/source-selection", { signal });
+  if (!response.ok) throw new Error(`Source path request failed (${response.status})`);
+  return (await response.json()) as SourcePathSelection;
+}
+
+export async function fetchSourcePathSuggestions(
+  kind: SourcePathKind,
+  query: string,
+  signal?: AbortSignal,
+): Promise<SourcePathSuggestions> {
+  const search = new URLSearchParams({ kind, query });
+  const response = await fetch(`/api/source-path-suggestions?${search}`, { signal });
+  if (!response.ok) throw new Error(`Source path suggestions failed (${response.status})`);
+  const payload = (await response.json()) as Partial<SourcePathSuggestions>;
+  return {
+    kind,
+    query,
+    directory: payload.directory ?? query,
+    parent: payload.parent ?? null,
+    entries: payload.entries
+      ?? (payload.suggestions ?? []).map((path) => ({ path, entry_type: "directory" as const })),
+    suggestions: payload.suggestions ?? [],
+  };
+}
+
+export async function replaceSourceSelection(
+  images: string,
+  annotations: string,
+  signal?: AbortSignal,
+): Promise<SequenceListResponse> {
+  const response = await fetch("/api/source-selection", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ images, annotations }),
+    signal,
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+    throw new Error(payload?.error?.message ?? `Source selection failed (${response.status})`);
   }
   return (await response.json()) as SequenceListResponse;
 }

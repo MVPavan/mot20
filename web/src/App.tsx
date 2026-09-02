@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 
 import {
   fetchTrackContext,
@@ -17,14 +17,16 @@ import {
   type TimelineEventsResponse,
   type TrackEvidenceResponse,
 } from "./api";
-import { BitmapLru } from "./bitmapCache";
+import { BitmapFrameLoader, BitmapLru } from "./bitmapCache";
 import { FrameViewport } from "./FrameViewport";
 import { FocusReview } from "./FocusReview";
+import { SourceSetup } from "./SourceSetup";
 import { TrackSearch } from "./TrackSearch";
 import { stabilizeContextCompetitors } from "./contextOverlayPlan";
 
 const TEST_POLICY_TEXT =
   "This source is local test-adapted development material and is not a held-out benchmark result.";
+const PREFETCH_BATCH_SIZE = 12;
 const DEFAULT_EVENT_SETTINGS: EventSettings = {
   displacement_enabled: false,
   displacement_threshold: 0.5,
@@ -91,6 +93,15 @@ export default function App() {
         </div>
       </header>
 
+      <SourceSetup
+        onLoaded={(nextCatalog) => {
+          setCatalog(nextCatalog);
+          setCatalogError("");
+          setSelectedKey(nextCatalog.sources[0]?.source_key ?? "");
+          setFrameDraft("1");
+        }}
+      />
+
       {catalog === null && catalogError === "" && (
         <p className="system-state" role="status">
           Loading local source metadata
@@ -145,12 +156,17 @@ function Viewer({ source, frameDraft, setFrameDraft }: ViewerProps) {
     cacheRef.current = new BitmapLru();
   }
   const cache = cacheRef.current;
+  const loaderRef = useRef<BitmapFrameLoader | null>(null);
+  if (loaderRef.current === null) {
+    loaderRef.current = new BitmapFrameLoader(cache);
+  }
+  const loader = loaderRef.current;
   const [observations, setObservations] = useState<Observation[]>([]);
   const [observationStatus, setObservationStatus] = useState<"loading" | "ready" | "error">(
     "loading",
   );
-  const [direction, setDirection] = useState<-1 | 1>(1);
   const [playing, setPlaying] = useState(false);
+  const [readyFrame, setReadyFrame] = useState<number | null>(null);
   const [focusTarget, setFocusTarget] = useState<{ trackId: number; confirmedRowIndex: number } | null>(null);
   const [trackEvidence, setTrackEvidence] = useState<TrackEvidenceResponse | null>(null);
   const [filmstrip, setFilmstrip] = useState<FilmstripResponse | null>(null);
@@ -166,7 +182,10 @@ function Viewer({ source, frameDraft, setFrameDraft }: ViewerProps) {
     .filter(([, value]) => value === null)
     .map(([field]) => field.replaceAll("_", " "));
 
-  useEffect(() => () => cache.clear(), [cache]);
+  useEffect(() => () => {
+    loader.dispose();
+    cache.clear();
+  }, [cache, loader]);
 
   useEffect(() => {
     contextTrackIdsRef.current = [];
@@ -297,23 +316,21 @@ function Viewer({ source, frameDraft, setFrameDraft }: ViewerProps) {
   }, [frame, frameIsValid, source]);
 
   useEffect(() => {
-    if (!playing || !frameIsValid) {
+    if (!playing || !frameIsValid || readyFrame !== frame) {
       return;
     }
-    const timer = window.setInterval(() => {
+    const timer = window.setTimeout(() => {
       if (frame >= source.frame_count) {
         setPlaying(false);
       } else {
-        setDirection(1);
         setFrameDraft(String(frame + 1));
       }
     }, window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? 1000 : 200);
-    return () => window.clearInterval(timer);
-  }, [frame, frameIsValid, playing, setFrameDraft, source.frame_count]);
+    return () => window.clearTimeout(timer);
+  }, [frame, frameIsValid, playing, readyFrame, setFrameDraft, source.frame_count]);
 
   function seek(nextFrame: number): void {
     const bounded = Math.min(source.frame_count, Math.max(1, Math.trunc(nextFrame)));
-    setDirection(bounded < frame ? -1 : 1);
     setFrameDraft(String(bounded));
   }
 
@@ -340,11 +357,14 @@ function Viewer({ source, frameDraft, setFrameDraft }: ViewerProps) {
     }
   }
 
-  const prefetch = frameIsValid
-    ? Array.from({ length: 4 }, (_, index) => frame + direction * (index + 1))
-        .filter((candidate) => candidate >= 1 && candidate <= source.frame_count)
-        .map((candidate) => ({ frame: candidate, url: frameImageUrl(source, candidate) }))
-    : [];
+  const prefetchBatch = frameIsValid ? Math.floor((frame - 1) / PREFETCH_BATCH_SIZE) : -1;
+  const prefetch = useMemo(() => {
+    if (prefetchBatch < 0) return [];
+    const firstFrame = prefetchBatch * PREFETCH_BATCH_SIZE + 2;
+    return Array.from({ length: PREFETCH_BATCH_SIZE }, (_, index) => firstFrame + index)
+      .filter((candidate) => candidate <= source.frame_count)
+      .map((candidate) => ({ frame: candidate, url: frameImageUrl(source, candidate) }));
+  }, [prefetchBatch, source.frame_count, source.source_hash, source.source_key]);
 
   return (
     <section
@@ -388,8 +408,6 @@ function Viewer({ source, frameDraft, setFrameDraft }: ViewerProps) {
               max={source.frame_count}
               min="1"
               onChange={(event) => {
-                const next = Number(event.target.value);
-                if (Number.isFinite(next)) setDirection(next < frame ? -1 : 1);
                 setFrameDraft(event.target.value);
               }}
               step="1"
@@ -434,8 +452,10 @@ function Viewer({ source, frameDraft, setFrameDraft }: ViewerProps) {
           contextCompetitors={contextCompetitors}
           frame={frame}
           imageUrl={frameImageUrl(source, frame)}
+          loader={loader}
           observationStatus={observationStatus}
           observations={observations}
+          onFrameReady={setReadyFrame}
           onPin={() => setPlaying(false)}
           focusEvidence={trackEvidence}
           focusTrackId={focusTarget?.trackId ?? null}

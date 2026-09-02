@@ -47,10 +47,12 @@ async function sourceMetadata(page: Page, sourceKey: string): Promise<SourceMeta
 }
 
 async function imagePoint(page: Page, source: SourceMetadata, imageX: number, imageY: number) {
-  return page.getByTestId("frame-viewport").evaluate((viewport, input) => {
-    const canvas = viewport.querySelector<HTMLCanvasElement>('[data-layer="overlay"]')!;
+  const viewport = page.getByTestId("frame-viewport");
+  await viewport.scrollIntoViewIfNeeded();
+  return viewport.evaluate((element, input) => {
+    const canvas = element.querySelector<HTMLCanvasElement>('[data-layer="overlay"]')!;
     const bounds = canvas.getBoundingClientRect();
-    const [x, y, width, height] = (viewport.getAttribute("data-image-rect") ?? "").split(",").map(Number);
+    const [x, y, width, height] = (element.getAttribute("data-image-rect") ?? "").split(",").map(Number);
     const dpr = canvas.width / bounds.width;
     return {
       x: bounds.left + x / dpr + (input.imageX / input.sourceWidth) * (width / dpr),

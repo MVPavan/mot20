@@ -9,6 +9,7 @@ from mot20.viewer.config import (
     ConfigError,
     Provenance,
     SourceConfig,
+    config_from_paths,
     load_config,
     provenance_diagnostics,
     resolve_source_paths,
@@ -16,6 +17,29 @@ from mot20.viewer.config import (
 
 
 class ViewerConfigTest(unittest.TestCase):
+    def test_direct_paths_infer_sequence_and_annotation_adapter(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            sequence_root = Path(temporary_directory) / "MOT20-01"
+            images = sequence_root / "img1"
+            images.mkdir(parents=True)
+            (sequence_root / "seqinfo.ini").write_text(
+                "[Sequence]\nname=MOT20-01\n",
+                encoding="utf-8",
+            )
+            ground_truth = sequence_root / "gt.txt"
+            ground_truth.write_text("1,7,0,0,3,4,1,1,0.8\n", encoding="utf-8")
+            predictions = sequence_root / "predictions.txt"
+            predictions.write_text("1,7,0,0,3,4,0.9,-1,-1,-1\n", encoding="utf-8")
+
+            ground_truth_config = config_from_paths(images, ground_truth)
+            prediction_config = config_from_paths(images, predictions)
+
+        self.assertEqual(ground_truth_config.sources[0].sequence, "MOT20-01")
+        self.assertEqual(ground_truth_config.sources[0].adapter, "mot_gt_9")
+        self.assertEqual(prediction_config.sources[0].adapter, "mot_result_10")
+        self.assertEqual(Path(prediction_config.sources[0].images), images.resolve())
+        self.assertEqual(Path(prediction_config.sources[0].annotations), predictions.resolve())
+
     def test_valid_config_is_immutable_and_diagnoses_missing_provenance(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             config_path = Path(temporary_directory) / "viewer.toml"

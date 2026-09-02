@@ -74,7 +74,7 @@ def load_source(source: SourceConfig, repository_root: Path) -> LoadedSource:
     paths = resolve_source_paths(source, repository_root)
     if not paths.seqinfo.is_file() or not paths.annotations.is_file() or not paths.images.is_dir():
         raise SourceError(f"source {source.key} is missing a required file or directory")
-    sequence = _load_sequence(source, paths.seqinfo, paths.images, Path(repository_root).resolve(strict=True))
+    sequence = _load_sequence(source, paths.seqinfo, paths.images)
     try:
         annotation_bytes = paths.annotations.read_bytes()
         annotation_text = annotation_bytes.decode("utf-8")
@@ -113,7 +113,7 @@ def load_source(source: SourceConfig, repository_root: Path) -> LoadedSource:
     )
 
 
-def _load_sequence(source: SourceConfig, seqinfo_path: Path, image_root: Path, repository_root: Path) -> Sequence:
+def _load_sequence(source: SourceConfig, seqinfo_path: Path, image_root: Path) -> Sequence:
     parser = configparser.ConfigParser(interpolation=None)
     try:
         with seqinfo_path.open(encoding="utf-8") as stream:
@@ -141,8 +141,8 @@ def _load_sequence(source: SourceConfig, seqinfo_path: Path, image_root: Path, r
         raise SourceError(f"image count or names do not match seqinfo.ini for source {source.key}")
     for image_name in actual_names:
         image_path = image_root / image_name
-        if not image_path.resolve(strict=True).is_relative_to(repository_root):
-            raise SourceError(f"JPEG path escapes repository root: {image_path}")
+        if not image_path.resolve(strict=True).is_relative_to(image_root):
+            raise SourceError(f"JPEG path escapes configured image directory: {image_path}")
         try:
             with Image.open(image_path) as image:
                 if image.format != "JPEG" or image.size != (width, height):

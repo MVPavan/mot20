@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import configparser
 import tomllib
 from dataclasses import dataclass, fields
 from pathlib import Path
@@ -34,6 +35,7 @@ class SourceConfig:
     annotations: str
     adapter: AdapterKind
     provenance: Provenance
+    paths_are_explicit: bool = False
 
 
 @dataclass(frozen=True)
@@ -63,6 +65,34 @@ def load_config(config_path: Path) -> ViewerConfig:
     return ViewerConfig(sources=sources)
 
 
+def config_from_paths(images: Path, annotations: Path) -> ViewerConfig:
+    try:
+        image_path = Path(images).expanduser().resolve(strict=True)
+        annotation_path = Path(annotations).expanduser().resolve(strict=True)
+    except OSError as error:
+        raise ConfigError("direct source paths must exist") from error
+    if not image_path.is_dir():
+        raise ConfigError(f"images path is not a directory: {image_path}")
+    if not annotation_path.is_file():
+        raise ConfigError(f"annotations path is not a file: {annotation_path}")
+
+    seqinfo_path = image_path.parent / "seqinfo.ini"
+    sequence = _read_sequence_name(seqinfo_path)
+    adapter = _infer_adapter(annotation_path)
+    key = f"{sequence}-{annotation_path.stem}".lower().replace("_", "-")
+    source = SourceConfig(
+        key=key,
+        sequence=sequence,
+        seqinfo=str(seqinfo_path),
+        images=str(image_path),
+        annotations=str(annotation_path),
+        adapter=adapter,
+        provenance=Provenance(),
+        paths_are_explicit=True,
+    )
+    return ViewerConfig(sources=(source,))
+
+
 def provenance_diagnostics(config: ViewerConfig) -> tuple[Diagnostic, ...]:
     diagnostics: list[Diagnostic] = []
     for source in config.sources:
@@ -84,6 +114,11 @@ def resolve_source_paths(source: SourceConfig, repository_root: Path) -> Resolve
     resolved: dict[str, Path] = {}
     for name in ("seqinfo", "images", "annotations"):
         configured = Path(getattr(source, name))
+        if source.paths_are_explicit:
+            if not configured.is_absolute():
+                raise ConfigError(f"source {source.key} explicit {name} path must be absolute")
+            resolved[name] = configured.resolve(strict=False)
+            continue
         if configured.is_absolute():
             raise ConfigError(f"source {source.key} {name} path escapes repository root")
         candidate = (root / configured).resolve(strict=False)
@@ -111,6 +146,32 @@ def _parse_source(value: object, index: int) -> SourceConfig:
         annotations=strings["annotations"],
         adapter=cast(AdapterKind, adapter),
         provenance=provenance,
+    )
+
+
+def _read_sequence_name(seqinfo_path: Path) -> str:
+    parser = configparser.ConfigParser(interpolation=None)
+    try:
+        with seqinfo_path.open(encoding="utf-8") as stream:
+            parser.read_file(stream)
+        return _require_string(parser["Sequence"]["name"], "sequence name")
+    except (OSError, KeyError, configparser.Error) as error:
+        raise ConfigError(f"cannot infer sequence from {seqinfo_path}") from error
+
+
+def _infer_adapter(annotation_path: Path) -> AdapterKind:
+    try:
+        first_row = annotation_path.read_text(encoding="utf-8").splitlines()[0]
+    except (OSError, UnicodeDecodeError, IndexError) as error:
+        raise ConfigError(f"cannot infer annotation format from {annotation_path}") from error
+    field_count = len(first_row.split(","))
+    if field_count == 9:
+        return "mot_gt_9"
+    if field_count == 10:
+        return "mot_result_10"
+    raise ConfigError(
+        f"annotations must contain MOT ground-truth rows with 9 fields "
+        f"or prediction rows with 10 fields; found {field_count}"
     )
 
 

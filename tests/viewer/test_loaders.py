@@ -127,7 +127,7 @@ imExt=.jpg
                 provenance=Provenance(),
             )
 
-            with self.assertRaisesRegex(SourceError, "escapes repository root"):
+            with self.assertRaisesRegex(SourceError, "escapes configured image directory"):
                 load_source(source, root)
 
     def test_jpeg_names_counts_and_dimensions_must_match_seqinfo(self) -> None:

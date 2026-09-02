@@ -22,7 +22,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "../.venv/bin/python ../scripts/run_viewer.py --port 4180",
+    command: "../.venv/bin/python ../scripts/run_viewer.py --config configs/viewer.toml --port 4180",
     url: "http://127.0.0.1:4180/api/health",
     reuseExistingServer: false,
     timeout: 120_000,

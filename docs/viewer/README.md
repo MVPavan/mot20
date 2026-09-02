@@ -1,8 +1,9 @@
 # MOT20 Viewer
 
-This is a loopback-only, read-only browser for exact MOT20 frames and configured
-observations. `configs/viewer.toml` is the source catalog authority. Derived crop
-caches, browser reports, screenshots, and exports stay below
+This is a loopback-only, read-only browser for exact MOT20 frames and a
+user-selected prediction or ground-truth file. The page takes the server-local
+image directory and annotation file explicitly. Derived crop caches, browser
+reports, screenshots, and exports stay below
 `artifacts/viewer/`; configured source files are never written.
 
 ## Setup
@@ -18,11 +19,11 @@ npm --prefix web ci
 PLAYWRIGHT_BROWSERS_PATH="$PWD/web/.playwright" npm --prefix web exec playwright install chromium
 ```
 
-The local dataset must provide every path named in `configs/viewer.toml`.
-Each `[[sources]]` entry contains a stable key, sequence name, repo-relative
-`seqinfo`, image directory, annotation file, and adapter. Optional provenance
-records producer, detector, checkpoint, tracker, post-processing, adaptation
-iterations, and notes.
+The image path must be a directory of one-based, six-digit JPEG frames such as
+`img1/000001.jpg`, with `seqinfo.ini` beside that image directory. The annotation
+path may be a 9-column MOT ground-truth file or a 10-column MOT prediction file;
+the viewer infers the matching parser. Repository-relative and absolute paths
+are accepted.
 
 `mot_gt_9` reads MOT ground-truth rows as
 `frame,id,x,y,width,height,mark,class,visibility`. `mot_result_10` preserves all
@@ -40,10 +41,23 @@ make build
 make run
 ```
 
-Open `http://127.0.0.1:8000`. A different loopback port is explicit:
+Open `http://127.0.0.1:8000`, then enter the image folder and annotation file as
+paths on the machine running the server. Suggestions are read from that server
+filesystem, not from the browser machine. Each Browse control starts at the
+server filesystem root, shows complete wrapping paths, and supports parent and
+child directory navigation. Direct absolute or repository-relative text entry
+remains available. Applying a source replaces the active source without
+restarting the process.
+
+A scripted launch may preselect the same two paths, and a different loopback
+port is explicit:
 
 ```bash
-.venv/bin/python scripts/run_viewer.py --host 127.0.0.1 --port 8010
+.venv/bin/python scripts/run_viewer.py \
+  --images /path/to/MOT20-01/img1 \
+  --annotations /path/to/predictions/MOT20-01.txt \
+  --host 127.0.0.1 \
+  --port 8010
 ```
 
 Stable aggregate gates and focused commands are:
@@ -80,9 +94,12 @@ requires configured MOT20 files and takes several minutes. See
   reasons rather than synthesizing identity.
 
 The image bitmap cache accepts capacities 100 through 200 and defaults to 150.
-It prefetches four frames in the current direction, aborts superseded requests,
-closes stale/evicted bitmaps, and validates immutable frame ETags. Crop caches
-are write-once derived files below `artifacts/viewer/cache/`.
+Forward playback prefetches stable 12-frame batches through three workers,
+deduplicates foreground and prefetch requests, and advances only after the
+current bitmap is decoded. Slow frames therefore pause the playback clock
+instead of being skipped. The cache closes stale or evicted bitmaps and
+validates immutable frame ETags. Crop caches are write-once derived files below
+`artifacts/viewer/cache/`.
 
 ## Policy And Limitations
 

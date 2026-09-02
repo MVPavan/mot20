@@ -154,6 +154,7 @@ const TRACKED_OBSERVATIONS = new Map([
 
 async function installTrackedFixtureRoutes(page: Page, requestedFrames: number[]) {
   const sources = [continuousMetadata, gappedMetadata, metadata];
+  await installSourceSetupRoutes(page, metadata);
   await page.route("**/api/sequences", (route) => route.fulfill({
     contentType: "application/json",
     body: JSON.stringify({ sources, unavailable: [], diagnostics: [] }),
@@ -295,7 +296,12 @@ async function installTrackedFixtureRoutes(page: Page, requestedFrames: number[]
   });
 }
 
-async function installFixtureRoutes(page: Page, requestedFrames: number[]) {
+async function installFixtureRoutes(
+  page: Page,
+  requestedFrames: number[],
+  delayedFrame?: { frame: number; delayMs: number },
+) {
+  await installSourceSetupRoutes(page, metadata, true);
   await page.route("**/api/sequences", (route) =>
     route.fulfill({
       contentType: "application/json",
@@ -346,7 +352,7 @@ async function installFixtureRoutes(page: Page, requestedFrames: number[]) {
       }),
     });
   });
-  await page.route(/\/api\/sequences\/[^/]+\/frames\/\d+(?:\?.*)?$/, (route) => {
+  await page.route(/\/api\/sequences\/[^/]+\/frames\/\d+(?:\?.*)?$/, async (route) => {
     const url = new URL(route.request().url());
     const parts = url.pathname.split("/");
     const sourceKey = parts[parts.indexOf("sequences") + 1];
@@ -358,9 +364,59 @@ async function installFixtureRoutes(page: Page, requestedFrames: number[]) {
     if (body === undefined) {
       return route.fulfill({ status: 404, body: "unknown synthetic frame" });
     }
+    if (delayedFrame?.frame === frame) {
+      await new Promise((resolve) => setTimeout(resolve, delayedFrame.delayMs));
+    }
     return route.fulfill({
       contentType: "image/jpeg",
       body: Buffer.from(body, "base64"),
+    });
+  });
+}
+
+async function installSourceSetupRoutes(
+  page: Page,
+  loadedSource: typeof metadata,
+  validatePost = false,
+) {
+  await page.route("**/api/source-selection", (route) => {
+    if (route.request().method() === "POST") {
+      if (validatePost) {
+        expect(route.request().postDataJSON()).toEqual({
+          images: "/srv/mot20/MOT20-08/img1",
+          annotations: "/srv/predictions/MOT20-08.txt",
+        });
+      }
+      return route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ sources: [loadedSource], unavailable: [], diagnostics: [] }),
+      });
+    }
+    return route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        images: "/srv/mot20/MOT20-06/img1",
+        annotations: "/srv/predictions/MOT20-06.txt",
+      }),
+    });
+  });
+  await page.route("**/api/source-path-suggestions?*", (route) => {
+    const requestUrl = new URL(route.request().url());
+    const kind = requestUrl.searchParams.get("kind");
+    const query = requestUrl.searchParams.get("query") ?? "";
+    const path = kind === "images"
+      ? "/srv/mot20/MOT20-08/img1"
+      : "/srv/predictions/MOT20-08.txt";
+    return route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        kind,
+        query,
+        directory: kind === "images" ? "/srv/mot20/MOT20-08" : "/srv/predictions",
+        parent: "/srv",
+        entries: [{ path, entry_type: kind === "images" ? "directory" : "file" }],
+        suggestions: [path],
+      }),
     });
   });
 }
@@ -383,6 +439,7 @@ function collectBrowserErrors(page: Page): string[] {
 
 async function imagePoint(page: Page, imageX: number, imageY: number) {
   const viewport = page.getByTestId("frame-viewport");
+  await viewport.scrollIntoViewIfNeeded();
   const geometry = await viewport.evaluate((element, point) => {
     const canvas = element.querySelector<HTMLCanvasElement>('[data-layer="overlay"]')!;
     const bounds = canvas.getBoundingClientRect();
@@ -455,6 +512,46 @@ async function assertNoSeriousAccessibilityViolations(page: Page): Promise<void>
   );
   expect(violations).toEqual([]);
 }
+
+test("loads image and annotation paths suggested by the server", async ({ page }) => {
+  const requestedFrames: number[] = [];
+  const errors = collectBrowserErrors(page);
+  await installFixtureRoutes(page, requestedFrames);
+  await page.goto("/");
+
+  const images = page.getByLabel("Images folder on server");
+  const annotations = page.getByLabel("Predictions or ground truth file on server");
+  await expect(images).toHaveValue("/srv/mot20/MOT20-06/img1");
+  await expect(annotations).toHaveValue("/srv/predictions/MOT20-06.txt");
+  await images.fill("/srv/mot20/MOT20-08/img1");
+  await expect(
+    page.getByRole("dialog", { name: "Server image folder browser" })
+      .getByText("/srv/mot20/MOT20-08/img1"),
+  ).toBeVisible();
+  await annotations.fill("/srv/predictions/MOT20-08.txt");
+  await page.getByRole("button", { name: "Load source" }).click();
+
+  await expect(page.getByLabel("Source", { exact: true })).toHaveValue(metadata.source_key);
+  await expect(page.getByLabel("Frame number")).toHaveValue("1");
+  await assertNoHorizontalOverflow(page);
+  expect(errors).toEqual([]);
+});
+
+test("playback waits for a delayed frame and resumes after it decodes", async ({ page }) => {
+  const requestedFrames: number[] = [];
+  await installFixtureRoutes(page, requestedFrames, { frame: 2, delayMs: 1000 });
+  await page.goto("/");
+  await page.getByLabel("Source", { exact: true }).selectOption(SOURCE_KEY);
+  await expect(page.getByRole("status", { name: /loading exact frame/i })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Start playback" }).click();
+  const frameInput = page.getByLabel("Frame number");
+  await expect(frameInput).toHaveValue("2");
+  await page.waitForTimeout(450);
+  expect(await frameInput.inputValue()).toBe("2");
+  await expect(frameInput).toHaveValue("3", { timeout: 2000 });
+  expect(requestedFrames.filter((frame) => frame === 2)).toHaveLength(1);
+});
 
 test("selects a source and renders exact first, middle, and last JPEGs", async ({ page }, testInfo: TestInfo) => {
   const requestedFrames: number[] = [];

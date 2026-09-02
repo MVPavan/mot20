@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -7,6 +8,7 @@ from typing import Literal
 
 from fastapi import APIRouter, FastAPI, Request
 from pydantic import BaseModel, ConfigDict
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
@@ -14,9 +16,15 @@ from starlette.responses import JSONResponse, Response
 from starlette.staticfiles import StaticFiles
 from starlette.types import Scope
 
-from mot20.viewer.config import AdapterKind, Provenance
+from mot20.viewer.config import (
+    AdapterKind,
+    ConfigError,
+    Provenance,
+    config_from_paths,
+    resolve_source_paths,
+)
 from mot20.viewer.contracts import Capability, Diagnostic, Observation
-from mot20.viewer.loaders import LoadedSource, SourceRegistry
+from mot20.viewer.loaders import LoadedSource, SourceError, SourceRegistry, load_registry
 
 
 class ApiModel(BaseModel):
@@ -80,6 +88,30 @@ class SequenceListResponse(ApiModel):
     sources: tuple[SourceMetadataResponse, ...]
     unavailable: tuple[UnavailableSourceResponse, ...]
     diagnostics: tuple[DiagnosticResponse, ...]
+
+
+class SourcePathRequest(ApiModel):
+    images: str
+    annotations: str
+
+
+class SourcePathResponse(ApiModel):
+    images: str | None
+    annotations: str | None
+
+
+class SourcePathEntryResponse(ApiModel):
+    path: str
+    entry_type: Literal["directory", "file"]
+
+
+class SourcePathSuggestionsResponse(ApiModel):
+    kind: Literal["images", "annotations"]
+    query: str
+    directory: str
+    parent: str | None
+    entries: tuple[SourcePathEntryResponse, ...]
+    suggestions: tuple[str, ...]
 
 
 class HealthResponse(ApiModel):
@@ -191,6 +223,7 @@ def create_app(
     app.state.repository_root = Path(repository_root).resolve(strict=True)
     app.state.frame_reader = frame_reader
     app.state.application_origin = application_origin or development_origin
+    app.state.source_selection_lock = asyncio.Lock()
 
     @app.exception_handler(ViewerApiError)
     async def viewer_api_error(_request: Request, error: ViewerApiError) -> JSONResponse:
@@ -198,31 +231,89 @@ def create_app(
         return JSONResponse(status_code=error.status_code, content=response.model_dump(mode="json"))
 
     @app.get("/api/health", response_model=HealthResponse)
-    async def health() -> HealthResponse:
+    async def health(request: Request) -> HealthResponse:
+        active_registry: SourceRegistry = request.app.state.registry
         return HealthResponse(
-            source_count=len(registry.sources),
-            unavailable_count=len(registry.unavailable),
+            source_count=len(active_registry.sources),
+            unavailable_count=len(active_registry.unavailable),
         )
 
     @app.get("/api/sequences", response_model=SequenceListResponse)
-    async def list_sequences() -> SequenceListResponse:
-        return _registry_response(registry)
+    async def list_sequences(request: Request) -> SequenceListResponse:
+        return _registry_response(request.app.state.registry)
+
+    @app.get("/api/source-selection", response_model=SourcePathResponse)
+    async def source_selection(request: Request) -> SourcePathResponse:
+        active_registry: SourceRegistry = request.app.state.registry
+        if not active_registry.sources:
+            return SourcePathResponse(images=None, annotations=None)
+        paths = resolve_source_paths(
+            active_registry.sources[0].config,
+            request.app.state.repository_root,
+        )
+        return SourcePathResponse(images=str(paths.images), annotations=str(paths.annotations))
+
+    @app.post("/api/source-selection", response_model=SequenceListResponse)
+    async def replace_source(request: Request, selection: SourcePathRequest) -> SequenceListResponse:
+        _require_same_origin(request)
+        async with request.app.state.source_selection_lock:
+            try:
+                config = config_from_paths(Path(selection.images), Path(selection.annotations))
+                replacement = await run_in_threadpool(
+                    load_registry,
+                    config,
+                    request.app.state.repository_root,
+                )
+            except (ConfigError, SourceError) as error:
+                raise ViewerApiError(
+                    400,
+                    ErrorDetail(code="invalid_source_paths", message=str(error)),
+                ) from error
+            request.app.state.registry = replacement
+        return _registry_response(replacement)
+
+    @app.get("/api/source-path-suggestions", response_model=SourcePathSuggestionsResponse)
+    async def source_path_suggestions(
+        request: Request,
+        kind: Literal["images", "annotations"],
+        query: str = "",
+    ) -> SourcePathSuggestionsResponse:
+        directory, parent, entries = await run_in_threadpool(
+            _server_path_suggestions,
+            request.app.state.repository_root,
+            kind,
+            query,
+        )
+        return SourcePathSuggestionsResponse(
+            kind=kind,
+            query=query,
+            directory=directory,
+            parent=parent,
+            entries=entries,
+            suggestions=tuple(entry.path for entry in entries),
+        )
 
     @app.get("/api/sequences/{source_key}", response_model=SourceMetadataResponse)
-    async def sequence_detail(source_key: str, source_hash: str | None = None) -> SourceMetadataResponse:
-        source = _require_source(registry, source_key, source_hash)
-        return _source_metadata(source, registry.diagnostics)
+    async def sequence_detail(
+        request: Request,
+        source_key: str,
+        source_hash: str | None = None,
+    ) -> SourceMetadataResponse:
+        active_registry: SourceRegistry = request.app.state.registry
+        source = _require_source(active_registry, source_key, source_hash)
+        return _source_metadata(source, active_registry.diagnostics)
 
     @app.get(
         "/api/sequences/{source_key}/frames/{frame}/observations",
         response_model=FrameObservationsResponse,
     )
     async def frame_observations(
+        request: Request,
         source_key: str,
         frame: int,
         source_hash: str | None = None,
     ) -> FrameObservationsResponse:
-        source = _require_source(registry, source_key, source_hash)
+        source = _require_source(request.app.state.registry, source_key, source_hash)
         _require_frame(source, frame)
         return FrameObservationsResponse(
             source_key=source.config.key,
@@ -239,7 +330,7 @@ def create_app(
         frame: int,
         source_hash: str | None = None,
     ) -> Response:
-        source = _require_source(registry, source_key, source_hash)
+        source = _require_source(request.app.state.registry, source_key, source_hash)
         _require_frame(source, frame)
         frame_path = _enumerated_frame_path(app.state.repository_root, source, frame)
         try:
@@ -275,8 +366,14 @@ def create_app(
 
 def _enumerated_frame_path(repository_root: Path, source: LoadedSource, frame: int) -> Path:
     image_name = source.sequence.image_names[frame - 1]
+    configured_root = Path(source.config.images)
+    image_root = (
+        configured_root.resolve(strict=True)
+        if configured_root.is_absolute()
+        else (repository_root / configured_root).resolve(strict=True)
+    )
     try:
-        frame_path = (repository_root / source.config.images / image_name).resolve(strict=True)
+        frame_path = (image_root / image_name).resolve(strict=True)
     except OSError as error:
         raise ViewerApiError(
             409,
@@ -287,17 +384,77 @@ def _enumerated_frame_path(repository_root: Path, source: LoadedSource, frame: i
                 frame=frame,
             ),
         ) from error
-    if not frame_path.is_relative_to(repository_root):
+    if not frame_path.is_relative_to(image_root):
         raise ViewerApiError(
             409,
             ErrorDetail(
                 code="frame_unavailable",
-                message=f"enumerated frame {frame} is outside the repository",
+                message=f"enumerated frame {frame} is outside the configured image directory",
                 source_key=source.config.key,
                 frame=frame,
             ),
         )
     return frame_path
+
+
+def _require_same_origin(request: Request) -> None:
+    configured_origin: str | None = request.app.state.application_origin
+    request_origin = f"{request.url.scheme}://{request.url.netloc}"
+    allowed_origins = {request_origin}
+    if configured_origin is not None:
+        allowed_origins.add(configured_origin.rstrip("/"))
+    if request.headers.get("origin", "").rstrip("/") not in allowed_origins:
+        raise ViewerApiError(
+            403,
+            ErrorDetail(
+                code="invalid_source_selection_origin",
+                message="source selection requires a same-origin request",
+            ),
+        )
+
+
+def _server_path_suggestions(
+    repository_root: Path,
+    kind: Literal["images", "annotations"],
+    query: str,
+) -> tuple[str, str | None, tuple[SourcePathEntryResponse, ...]]:
+    typed = Path(query).expanduser() if query.strip() else Path("/")
+    if not typed.is_absolute():
+        typed = repository_root / typed
+    parent = typed if typed.is_dir() else typed.parent
+    prefix = "" if typed.is_dir() else typed.name
+    try:
+        directory = parent.resolve(strict=True)
+        entries = sorted(directory.iterdir(), key=lambda path: path.name)
+    except OSError:
+        fallback = str(parent.resolve(strict=False))
+        return fallback, None, ()
+    suggestions: list[SourcePathEntryResponse] = []
+    for entry in entries:
+        if entry.name.startswith(".") or not entry.name.startswith(prefix):
+            continue
+        try:
+            entry_type: Literal["directory", "file"] | None = (
+                "directory"
+                if entry.is_dir()
+                else "file"
+                if kind == "annotations" and entry.is_file()
+                else None
+            )
+        except OSError:
+            continue
+        if entry_type is not None:
+            suggestions.append(
+                SourcePathEntryResponse(
+                    path=str(entry.resolve(strict=False)),
+                    entry_type=entry_type,
+                )
+            )
+        if len(suggestions) == 25:
+            break
+    resolved_directory = str(directory)
+    resolved_parent = None if directory.parent == directory else str(directory.parent)
+    return resolved_directory, resolved_parent, tuple(suggestions)
 
 
 def _etag_matches(if_none_match: str | None, etag: str) -> bool:

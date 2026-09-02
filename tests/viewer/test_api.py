@@ -58,6 +58,123 @@ imExt=.jpg
 
 
 class ViewerApiTest(unittest.TestCase):
+    def test_source_path_suggestions_use_server_filesystem(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            registry = build_registry(root)
+            choices = root / "server-choices"
+            images = choices / "MOT20-06" / "img1"
+            images.mkdir(parents=True)
+            predictions = choices / "MOT20-06.txt"
+            predictions.write_text("rows", encoding="utf-8")
+            (choices / ".private.txt").write_text("hidden", encoding="utf-8")
+            client = TestClient(create_app(registry=registry, repository_root=root))
+
+            image_response = client.get(
+                "/api/source-path-suggestions",
+                params={"kind": "images", "query": str(choices / "MOT")},
+            )
+            annotation_response = client.get(
+                "/api/source-path-suggestions",
+                params={"kind": "annotations", "query": str(choices / "MOT20")},
+            )
+            browse_response = client.get(
+                "/api/source-path-suggestions",
+                params={"kind": "annotations", "query": str(choices)},
+            )
+
+        self.assertEqual(image_response.status_code, 200)
+        self.assertEqual(
+            image_response.json()["suggestions"],
+            [str(choices / "MOT20-06")],
+        )
+        self.assertEqual(
+            annotation_response.json()["suggestions"],
+            [str(choices / "MOT20-06"), str(predictions)],
+        )
+        self.assertEqual(browse_response.json()["directory"], str(choices))
+        self.assertEqual(browse_response.json()["parent"], str(root))
+        self.assertEqual(
+            browse_response.json()["entries"],
+            [
+                {"path": str(choices / "MOT20-06"), "entry_type": "directory"},
+                {"path": str(predictions), "entry_type": "file"},
+            ],
+        )
+
+    def test_source_selection_replaces_registry_atomically(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            initial_registry = build_registry(root)
+            replacement_root = root / "replacement" / "MOT20-02"
+            images = replacement_root / "img1"
+            images.mkdir(parents=True)
+            (replacement_root / "seqinfo.ini").write_text(
+                """[Sequence]
+name=MOT20-02
+imDir=img1
+frameRate=25
+seqLength=1
+imWidth=8
+imHeight=6
+imExt=.jpg
+""",
+                encoding="utf-8",
+            )
+            Image.new("RGB", (8, 6)).save(images / "000001.jpg", format="JPEG")
+            annotations = replacement_root / "predictions.txt"
+            annotations.write_text("1,9,0,0,3,4,0.9,-1,-1,-1\n", encoding="utf-8")
+            app = create_app(
+                registry=initial_registry,
+                repository_root=root,
+                application_origin="http://127.0.0.1:8000",
+            )
+            client = TestClient(
+                app,
+                base_url="http://127.0.0.1:8000",
+            )
+
+            replaced = client.post(
+                "/api/source-selection",
+                headers={"Origin": "http://127.0.0.1:8000"},
+                json={"images": str(images), "annotations": str(annotations)},
+            )
+            rejected = client.post(
+                "/api/source-selection",
+                headers={"Origin": "http://127.0.0.1:8000"},
+                json={"images": str(root / "missing"), "annotations": str(annotations)},
+            )
+            alias_client = TestClient(app, base_url="http://localhost:8000")
+            alias = alias_client.post(
+                "/api/source-selection",
+                headers={"Origin": "http://localhost:8000"},
+                json={"images": str(images), "annotations": str(annotations)},
+            )
+            attacker = client.post(
+                "/api/source-selection",
+                headers={"Origin": "http://attacker.invalid"},
+                json={"images": str(images), "annotations": str(annotations)},
+            )
+            missing_origin = client.post(
+                "/api/source-selection",
+                json={"images": str(images), "annotations": str(annotations)},
+            )
+            active = client.get("/api/sequences")
+
+        self.assertEqual(replaced.status_code, 200)
+        self.assertEqual(replaced.json()["sources"][0]["sequence"], "MOT20-02")
+        self.assertEqual(rejected.status_code, 400)
+        self.assertEqual(rejected.json()["error"]["code"], "invalid_source_paths")
+        self.assertEqual(alias.status_code, 200)
+        self.assertEqual(attacker.status_code, 403)
+        self.assertEqual(attacker.json()["error"]["code"], "invalid_source_selection_origin")
+        self.assertEqual(missing_origin.status_code, 403)
+        self.assertEqual(
+            missing_origin.json()["error"]["code"],
+            "invalid_source_selection_origin",
+        )
+        self.assertEqual(active.json()["sources"][0]["sequence"], "MOT20-02")
+
     def test_health_and_sequence_list_expose_typed_metadata_without_paths(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

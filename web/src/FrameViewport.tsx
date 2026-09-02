@@ -9,7 +9,7 @@ import {
 } from "react";
 
 import { type ContextCompetitor, type Observation, type SourceMetadata } from "./api";
-import { BitmapLru, decodeFrame, type DecodedFrame } from "./bitmapCache";
+import { BitmapFrameLoader, BitmapLru, type DecodedFrame } from "./bitmapCache";
 import { containingCandidates, type HitRegion } from "./candidateRanking";
 import { CandidateChooser } from "./CandidateChooser";
 import {
@@ -31,7 +31,9 @@ interface FrameViewportProps {
   observations: Observation[];
   observationStatus: "loading" | "ready" | "error";
   cache: BitmapLru;
+  loader: BitmapFrameLoader;
   prefetch: Array<{ frame: number; url: string }>;
+  onFrameReady(frame: number): void;
   onPin(): void;
   focusTrackId: number | null;
   focusEvidence: import("./api").TrackEvidenceResponse | null;
@@ -261,7 +263,9 @@ export function FrameViewport({
   observations,
   observationStatus,
   cache,
+  loader,
   prefetch,
+  onFrameReady,
   onPin,
   focusTrackId,
   focusEvidence,
@@ -328,19 +332,16 @@ export function FrameViewport({
     const cached = cache.get(frame);
     if (cached !== undefined) {
       setImageState({ status: "ready", image: cached });
+      onFrameReady(frame);
       return;
     }
-    const controller = new AbortController();
     let active = true;
     setImageState({ status: "loading" });
-    decodeFrame(imageUrl, controller.signal)
+    loader.load(frame, imageUrl)
       .then((image) => {
-        if (!active) {
-          image.close?.();
-          return;
-        }
-        cache.set(frame, image);
+        if (!active) return;
         setImageState({ status: "ready", image });
+        onFrameReady(frame);
       })
       .catch((error: unknown) => {
         if (active && !(error instanceof DOMException && error.name === "AbortError")) {
@@ -349,23 +350,29 @@ export function FrameViewport({
       });
     return () => {
       active = false;
-      controller.abort();
     };
-  }, [cache, frame, imageUrl]);
+  }, [cache, frame, imageUrl, loader, onFrameReady]);
 
   useEffect(() => {
-    const controllers = prefetch.flatMap(({ frame: prefetchFrame, url }) => {
-      if (cache.get(prefetchFrame) !== undefined) {
-        return [];
+    let active = true;
+    let nextIndex = 0;
+    async function worker(): Promise<void> {
+      while (active && nextIndex < prefetch.length) {
+        const item = prefetch[nextIndex];
+        nextIndex += 1;
+        if (cache.get(item.frame) !== undefined) continue;
+        try {
+          await loader.load(item.frame, item.url);
+        } catch {
+          // Current-frame loading reports actionable failures; prefetch remains best-effort.
+        }
       }
-      const controller = new AbortController();
-      decodeFrame(url, controller.signal)
-        .then((image) => cache.set(prefetchFrame, image))
-        .catch(() => undefined);
-      return [controller];
-    });
-    return () => controllers.forEach((controller) => controller.abort());
-  }, [cache, prefetch]);
+    }
+    void Promise.all(Array.from({ length: Math.min(3, prefetch.length) }, () => worker()));
+    return () => {
+      active = false;
+    };
+  }, [cache, loader, prefetch]);
 
   useEffect(() => {
     if (imageState.status !== "ready" || viewportSize === null) {

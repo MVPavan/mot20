@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  BitmapFrameLoader,
   BitmapLru,
   DEFAULT_BITMAP_CACHE_SIZE,
   decodeFrame,
@@ -60,5 +61,26 @@ describe("decodeFrame", () => {
       name: "AbortError",
     });
     expect(bitmap.close).toHaveBeenCalledOnce();
+  });
+});
+
+describe("BitmapFrameLoader", () => {
+  it("shares an in-flight frame decode between prefetch and current-frame loading", async () => {
+    let resolveResponse!: (response: Response) => void;
+    const response = new Promise<Response>((resolve) => { resolveResponse = resolve; });
+    const bitmap = { width: 8, height: 6, close: vi.fn() } as unknown as ImageBitmap;
+    vi.stubGlobal("fetch", vi.fn().mockReturnValue(response));
+    vi.stubGlobal("createImageBitmap", vi.fn().mockResolvedValue(bitmap));
+    const cache = new BitmapLru();
+    const loader = new BitmapFrameLoader(cache);
+
+    const prefetched = loader.load(7, "/frame-7.jpg");
+    const current = loader.load(7, "/frame-7.jpg");
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(current).toBe(prefetched);
+    resolveResponse({ ok: true, blob: async () => new Blob(["jpeg"]) } as Response);
+
+    await expect(current).resolves.toBe(bitmap);
+    expect(cache.get(7)).toBe(bitmap);
   });
 });
