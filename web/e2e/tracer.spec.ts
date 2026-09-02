@@ -578,6 +578,8 @@ test("handles empty, no-hit, edge, resize-pinned, and keyboard frame navigation"
   await installFixtureRoutes(page, requestedFrames);
   await page.goto("/");
   await page.getByLabel("Source", { exact: true }).selectOption(SOURCE_KEY);
+  await page.setViewportSize({ width: 829, height: 780 });
+  await assertNoHorizontalOverflow(page);
 
   await page.getByLabel("Frame number").fill("2");
   await expect(page.getByText("No observations on frame 2")).toBeVisible();
@@ -787,7 +789,7 @@ test("source switch ignores delayed Focus evidence without recreating the prior 
   await installTrackedFixtureRoutes(page, requestedFrames);
   let releaseEvidence!: () => void;
   const evidenceGate = new Promise<void>((resolve) => { releaseEvidence = resolve; });
-  await page.route(/\/api\/sequences\/synthetic-tracked-continuous\/tracks\/8\?(?:.*)$/, async (route) => {
+  await page.route(/\/api\/sequences\/synthetic-tracked-continuous\/tracks\?track_id=8(?:&.*)?$/, async (route) => {
     await evidenceGate;
     const observations = TRACKED_OBSERVATIONS.get(continuousMetadata.source_key)!;
     await route.fulfill({ contentType: "application/json", body: JSON.stringify({

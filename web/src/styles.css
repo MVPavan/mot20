@@ -783,7 +783,7 @@ select {
 
 .source-status {
   display: grid;
-  grid-template-columns: minmax(210px, 2fr) repeat(5, minmax(120px, 1fr));
+  grid-template-columns: minmax(180px, 2fr) repeat(5, minmax(110px, 1fr));
   margin: 0;
   border-bottom: 1px solid var(--line);
 }
