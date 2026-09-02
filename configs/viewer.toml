@@ -1,0 +1,23 @@
+[[sources]]
+key = "mot20-01-gt"
+sequence = "MOT20-01"
+seqinfo = "datasets/MOT20/train/MOT20-01/seqinfo.ini"
+images = "datasets/MOT20/train/MOT20-01/img1"
+annotations = "datasets/MOT20/train/MOT20-01/gt/gt.txt"
+adapter = "mot_gt_9"
+
+[[sources]]
+key = "mot20-06-joco"
+sequence = "MOT20-06"
+seqinfo = "datasets/MOT20/test/MOT20-06/seqinfo.ini"
+images = "datasets/MOT20/test/MOT20-06/img1"
+annotations = "datasets/MOT20_TEST_TRACK_DEEPAK/joco_v1/dets/MOT20-06.txt"
+adapter = "mot_result_10"
+
+[[sources]]
+key = "mot20-08-joco"
+sequence = "MOT20-08"
+seqinfo = "datasets/MOT20/test/MOT20-08/seqinfo.ini"
+images = "datasets/MOT20/test/MOT20-08/img1"
+annotations = "datasets/MOT20_TEST_TRACK_DEEPAK/joco_v1/dets/MOT20-08.txt"
+adapter = "mot_result_10"

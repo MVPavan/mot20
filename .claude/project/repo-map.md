@@ -15,6 +15,18 @@ Physical layout and navigation. Prefer repo-relative paths.
 | `.codex/` | Codex project settings and lifecycle hooks |
 | `.github/` | GitHub Copilot instructions, prompts, and hooks |
 
+## Viewer Implementation
+
+| Path | Role |
+| --- | --- |
+| `src/mot20/viewer/` | Read-only source registry, API, track evidence, context, crops, events, and bounded export logic |
+| `web/src/` | React exact-frame review client and canvas overlays |
+| `web/e2e/` | Deterministic and opt-in real-data Playwright acceptance |
+| `configs/viewer.toml` | Authoritative configured viewer source catalog |
+| `tests/viewer/` | Backend contracts, integrations, export tests, and local-data smoke checks |
+| `docs/viewer/` | Viewer operations, algorithms, measurements, and export documentation |
+| `artifacts/viewer/` | Ignored derived caches, exports, and verification records |
+
 ## Intended Code Layout
 
 | Path | Intended role |

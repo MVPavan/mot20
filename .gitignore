@@ -48,3 +48,12 @@ scratchpad/
 .beads-credential-key
 .beads/proxieddb/
 repos/
+
+# Frontend dependencies, builds, and generated test output
+web/node_modules/
+web/dist/
+web/coverage/
+web/test-results/
+web/playwright-report/
+web/.playwright/
+web/.vite/

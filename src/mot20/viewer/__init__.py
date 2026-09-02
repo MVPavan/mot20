@@ -1,0 +1,1 @@
+"""Read-only MOT20 visualization data contracts."""
