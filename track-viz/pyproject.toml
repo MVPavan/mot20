@@ -1,0 +1,57 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mot20-viewer"
+version = "0.1.0"
+description = "Read-only local tooling for inspecting MOT20 observations"
+requires-python = "==3.12.*"
+dependencies = [
+    "fastapi==0.116.1",
+    "httpx==0.28.1",
+    # Supervision 0.27 supports Python 3.12, NumPy 2.2, and Pillow 11.
+    "numpy==2.2.6",
+    "pillow==11.3.0",
+    "pydantic==2.11.7",
+    "supervision==0.27.0",
+    "uvicorn==0.35.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "mypy==1.17.1",
+    "pytest==8.4.1",
+    "ruff==0.12.7",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mot20"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers"
+testpaths = ["tests"]
+pythonpath = [".", "src"]
+norecursedirs = ["web", "artifacts"]
+markers = [
+    "local_data: read-only checks requiring the configured local MOT20 sources",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+exclude = ["web", "artifacts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src/mot20", "tests/viewer"]
+exclude = "^(web|artifacts)/"
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+module = "PIL.*"
+ignore_missing_imports = true

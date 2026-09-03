@@ -24,7 +24,7 @@ several minutes and require ignored MOT20 files:
 make e2e-real
 ```
 
-Read `artifacts/viewer/verification/browser-performance.json` and compare
+Read `track-viz/artifacts/verification/browser-performance.json` and compare
 `source-manifest-before.json` with `source-manifest-after.json` before making a
 release claim. Source manifests cover every configured `seqinfo`, annotation,
 and enumerated image file.
@@ -56,11 +56,11 @@ bd export -o .beads/issues.jsonl
 ## Focused Viewer Commands
 
 ```bash
-.venv/bin/python -m pytest -m "not local_data" tests/viewer
-npm --prefix web run test
-npm --prefix web run typecheck
+.venv/bin/python -m pytest -c track-viz/pyproject.toml -m "not local_data" track-viz/tests/viewer
+npm --prefix track-viz/web run test
+npm --prefix track-viz/web run typecheck
 .venv/bin/python -m unittest discover -s cvat/tests -v
-PLAYWRIGHT_BROWSERS_PATH="$PWD/web/.playwright" npm --prefix web run e2e
+PLAYWRIGHT_BROWSERS_PATH="$PWD/track-viz/web/.playwright" npm --prefix track-viz/web run e2e
 ```
 
 Never present an unrun command or ignored derived report as completed

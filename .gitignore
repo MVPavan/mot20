@@ -49,11 +49,11 @@ scratchpad/
 .beads/proxieddb/
 repos/
 
-# Frontend dependencies, builds, and generated test output
-web/node_modules/
-web/dist/
-web/coverage/
-web/test-results/
-web/playwright-report/
-web/.playwright/
-web/.vite/
+# Viewer dependencies, builds, and generated test output
+track-viz/web/node_modules/
+track-viz/web/dist/
+track-viz/web/coverage/
+track-viz/web/test-results/
+track-viz/web/playwright-report/
+track-viz/web/.playwright/
+track-viz/web/.vite/
