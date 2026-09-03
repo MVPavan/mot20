@@ -16,7 +16,7 @@ SPEC.loader.exec_module(MODULE)
 class ByteTrackXImportTest(unittest.TestCase):
     def test_normalized_yolo_rows_become_zero_based_semi_auto_shapes(self) -> None:
         root = Path(tempfile.mkdtemp())
-        (root / "000001.txt").write_text("0 0.5 0.5 0.25 0.5\n")
+        (root / "000001.txt").write_text("0 0.5 0.5 0.25 0.5 0.9\n")
         (root / "000002.txt").write_text("0 0.25 0.25 0.1 0.2\n")
 
         shapes = MODULE.read_yolo_shapes(root, sequence_length=2, image_width=1920, image_height=734, label_id=17)
