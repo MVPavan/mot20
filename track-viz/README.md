@@ -4,7 +4,10 @@ This is a loopback-only, read-only browser for exact MOT20 frames and a
 user-selected prediction or ground-truth file. The page takes the server-local
 image directory and annotation file explicitly. Derived crop caches, browser
 reports, screenshots, and exports stay below
-`artifacts/viewer/`; configured source files are never written.
+`track-viz/artifacts/`; configured source files are never written.
+
+For a code-oriented architecture map and a short new-session reading order, see
+`track-viz/docs/HANDOFF.md`.
 
 ## Setup
 
@@ -14,9 +17,9 @@ Python 3.12.3, Node 24.20.0, and npm 11.19.0. From the repository root:
 ```bash
 python3.12 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
-.venv/bin/python -m pip install -e '.[dev]'
-npm --prefix web ci
-PLAYWRIGHT_BROWSERS_PATH="$PWD/web/.playwright" npm --prefix web exec playwright install chromium
+.venv/bin/python -m pip install -e './track-viz[dev]'
+npm --prefix track-viz/web ci
+PLAYWRIGHT_BROWSERS_PATH="$PWD/track-viz/web/.playwright" npm --prefix track-viz/web exec playwright install chromium
 ```
 
 The image path must be a directory of one-based, six-digit JPEG frames such as
@@ -53,7 +56,7 @@ A scripted launch may preselect the same two paths, and a different loopback
 port is explicit:
 
 ```bash
-.venv/bin/python scripts/run_viewer.py \
+.venv/bin/python track-viz/scripts/run_viewer.py \
   --images /path/to/MOT20-01/img1 \
   --annotations /path/to/predictions/MOT20-01.txt \
   --host 127.0.0.1 \
@@ -75,7 +78,7 @@ make e2e-real      # production server and real local-data journeys/measurements
 
 `make e2e-real` writes ignored screenshots, traces, and the measured report; it
 requires configured MOT20 files and takes several minutes. See
-`docs/viewer/performance.md` for the accepted environment and values.
+`track-viz/docs/performance.md` for the accepted environment and values.
 
 ## Controls And Capabilities
 
@@ -99,7 +102,7 @@ deduplicates foreground and prefetch requests, and advances only after the
 current bitmap is decoded. Slow frames therefore pause the playback clock
 instead of being skipped. The cache closes stale or evicted bitmaps and
 validates immutable frame ETags. Crop caches are write-once derived files below
-`artifacts/viewer/cache/`.
+`track-viz/artifacts/cache/`.
 
 ## Policy And Limitations
 
@@ -120,11 +123,11 @@ tracker, checkpoint, post-processing, review, and adaptation provenance.
   404-429, which has no internal gaps. Gap journeys are therefore synthetic
   fixture evidence, not a real MOT20-01 gap claim.
 - Browser exports have no dedicated UI control. The bounded POST API and offline
-  CLI are documented in `docs/viewer/exports.md`.
+  CLI are documented in `track-viz/docs/exports.md`.
 - The locally exercised export codec is MP4V in an MP4 container. No broader
   browser or platform codec compatibility is claimed.
 
 Source-integrity manifests and performance reports live under
-`artifacts/viewer/verification/`; browser screenshots and traces live under
-`web/test-results/` and `web/playwright-report/`. These are ignored derived
-records and may contain local paths or machine details.
+`track-viz/artifacts/verification/`; browser screenshots and traces live under
+`track-viz/web/test-results/` and `track-viz/web/playwright-report/`. These are
+ignored derived records and may contain local paths or machine details.

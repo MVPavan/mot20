@@ -465,7 +465,7 @@ imExt=.jpg
             api_only_client = TestClient(create_app(registry=registry, repository_root=root))
             api_only = api_only_client.get("/viewer/sequence")
 
-            distribution = root / "web" / "dist"
+            distribution = root / "track-viz" / "web" / "dist"
             distribution.mkdir(parents=True)
             (distribution / "index.html").write_text("<main>viewer</main>", encoding="utf-8")
             (distribution / "viewer.js").write_text("export const ready = true;", encoding="utf-8")

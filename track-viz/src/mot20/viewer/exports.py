@@ -266,7 +266,7 @@ def write_track_video(
     )
     identity = _export_identity(source, parameters, kind, frame_inputs, context_track_ids)
     export_id = hashlib.sha256(_canonical_json(identity)).hexdigest()
-    export_root = root / "artifacts" / "viewer" / "exports"
+    export_root = root / "track-viz" / "artifacts" / "exports"
     export_root.mkdir(parents=True, exist_ok=True)
     final_directory = export_root / export_id
     if final_directory.exists():
@@ -598,7 +598,7 @@ def _validate_interactive_range(source_key: str, start_frame: int, end_frame: in
                 code="interactive_export_frame_cap_exceeded",
                 message=(
                     f"interactive exports are limited to {INTERACTIVE_FRAME_CAP} frames; "
-                    "use scripts/export_track_video.py for a bounded offline export"
+                    "use track-viz/scripts/export_track_video.py for a bounded offline export"
                 ),
                 source_key=source_key,
             ),

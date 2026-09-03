@@ -8,9 +8,9 @@ Last updated: 2026-08-27
 
 ## Current State
 
-- The repository contains the agent harness and Beads setup only.
-- No source package, dependency manifest, framework, dataset checkout, model, or CI workflow is established yet.
-- Python is the expected implementation language, but its version, package manager, and ML stack remain undecided until committed configuration proves otherwise.
+- The repository contains a self-contained MOT20 track viewer under `track-viz/`, CVAT provisioning tools, the agent harness, and Beads setup.
+- The viewer establishes its own Python 3.12 package and React/Vite toolchain; it does not establish the ML framework for other workstreams.
+- Local MOT20 datasets are present but remain ignored, protected records.
 - Beads is the durable work tracker, using issue prefix `mot`.
 
 ## Intended Workstreams

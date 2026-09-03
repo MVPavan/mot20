@@ -19,13 +19,8 @@ Physical layout and navigation. Prefer repo-relative paths.
 
 | Path | Role |
 | --- | --- |
-| `src/mot20/viewer/` | Read-only source registry, API, track evidence, context, crops, events, and bounded export logic |
-| `web/src/` | React exact-frame review client and canvas overlays |
-| `web/e2e/` | Deterministic and opt-in real-data Playwright acceptance |
-| `configs/viewer.toml` | Explicit multi-source catalog used by real browser acceptance; normal selection uses server paths entered in the page |
-| `tests/viewer/` | Backend contracts, integrations, export tests, and local-data smoke checks |
-| `docs/viewer/` | Viewer operations, algorithms, measurements, and export documentation |
-| `artifacts/viewer/` | Ignored derived caches, exports, and verification records |
+| `track-viz/` | Self-contained viewer project: Python backend, React UI, tests, configuration, scripts, docs, and ignored derived artifacts |
+| `Makefile` | Thin repository entry point delegating viewer commands to `track-viz/` and retaining repository-wide test composition |
 
 ## Intended Code Layout
 

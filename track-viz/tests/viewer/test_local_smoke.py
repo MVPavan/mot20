@@ -13,8 +13,8 @@ from mot20.viewer.loaders import load_source
 @pytest.mark.local_data
 class LocalMot20SmokeTest(unittest.TestCase):
     def test_configured_sources_preserve_identity_contracts(self) -> None:
-        repository_root = Path(__file__).resolve().parents[2]
-        config = load_config(repository_root / "configs" / "viewer.toml")
+        repository_root = Path(__file__).resolve().parents[3]
+        config = load_config(repository_root / "track-viz" / "configs" / "viewer.toml")
         expected = {
             "mot20-01-gt": ("tracked", 9, 26_647),
             "mot20-06-joco": ("sentinel_only", 10, 136_267),

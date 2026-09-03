@@ -1,7 +1,7 @@
 # Viewer Release Evidence
 
 Measured 2026-09-02 by `make e2e-real`. The machine-readable authority is
-`artifacts/viewer/verification/browser-performance.json`; source manifests and
+`track-viz/artifacts/verification/browser-performance.json`; source manifests and
 their comparison are in the same ignored directory.
 
 ## Environment
@@ -89,4 +89,4 @@ equal. Their canonical aggregate digest is
 
 Corrected tracked MOT20-06/08 exports remain absent. Real tracked evidence is
 therefore MOT20-01 ground truth only; 06/08 tracked-result, varying-confidence,
-and gap journeys remain synthetic-only as detailed in `docs/viewer/README.md`.
+and gap journeys remain synthetic-only as detailed in `track-viz/README.md`.

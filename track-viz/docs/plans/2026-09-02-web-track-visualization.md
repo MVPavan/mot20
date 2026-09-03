@@ -98,8 +98,8 @@ tests/viewer/                      Synthetic backend and contract tests
 web/                               React/TypeScript/Vite application
 web/src/                           UI, canvas, state, and API client
 web/e2e/                           Playwright browser acceptance tests
-docs/viewer/                       Operator and architecture documentation
-artifacts/viewer/                  Ignored derived crops, exports, screenshots
+docs/                              Operator and architecture documentation
+artifacts/                         Ignored derived crops, exports, screenshots
 ```
 
 The backend owns source enumeration, validation, indexes, feature capabilities,
@@ -436,7 +436,7 @@ without changing the interactive browser rendering contract.
 
 **Owned paths:** Backend track/color/filmstrip/crop services and routes plus
 their application-factory registration,
-Supervision detection adapter, `docs/viewer/filmstrip-sampling.md`, matching
+Supervision detection adapter, `docs/filmstrip-sampling.md`, matching
 backend tests, and Supervision/Pillow dependency additions to `pyproject.toml`.
 
 **Forbidden paths:** Frontend UI, source files, export endpoints, and decisions.
@@ -456,7 +456,7 @@ backend tests, and Supervision/Pillow dependency additions to `pyproject.toml`.
    Document the exact temporal sampling rule in the owned viewer document.
 5. Serve bounded crops by source-row identity. Preserve raw coordinates in
    metadata, clamp pixels only at render time, and cache under a result/source
-   hash and crop-parameter key in `artifacts/viewer/cache/` using atomic writes.
+   hash and crop-parameter key in `artifacts/cache/` using atomic writes.
    JPEG decode, crop, and encode must use a synchronous endpoint or threadpool,
    never the event loop.
 6. Test sequence isolation, missing track capability, track not found, gaps,
@@ -621,7 +621,7 @@ interaction redesign.
    per-track video command. Reject larger interactive requests with guidance to
    the offline command. The export route rejects an `Origin` other than the
    configured application origin.
-3. Write outputs atomically under a hash-keyed `artifacts/viewer/exports/`
+3. Write outputs atomically under a hash-keyed `artifacts/exports/`
    directory with source/result hashes, frames, track, parameters, tool version,
    incoming producer/detector/checkpoint/tracker/adaptation provenance, and
    local test-adapted classification in sidecar metadata.
@@ -647,7 +647,7 @@ outputs. Do not claim codec support that was not exercised locally.
 operator documentation, and a fresh end-to-end browser/user acceptance loop.
 
 **Owned paths:** Cross-layer integration tests, performance instrumentation,
-Playwright suites/screenshots, `docs/viewer/`, root run/verification commands,
+Playwright suites/screenshots, `docs/`, root run/verification commands,
 and required updates to `.claude/project/docs-index.md`, `repo-map.md`, and
 `verification.md`.
 

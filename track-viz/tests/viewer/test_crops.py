@@ -38,7 +38,7 @@ class CropApiTest(unittest.TestCase):
             first = client.get(url)
             second = client.get(url)
 
-            cache_files = tuple((root / "artifacts" / "viewer" / "cache").rglob("*.jpg"))
+            cache_files = tuple((root / "track-viz" / "artifacts" / "cache").rglob("*.jpg"))
             cached_bytes = cache_files[0].read_bytes()
 
         self.assertEqual(first.status_code, 200)
@@ -130,7 +130,7 @@ class CropApiTest(unittest.TestCase):
                 format="JPEG",
             )
             second = client.get(url).json()
-            cache_files = tuple((root / "artifacts" / "viewer" / "cache").rglob("*.jpg"))
+            cache_files = tuple((root / "track-viz" / "artifacts" / "cache").rglob("*.jpg"))
 
         self.assertNotEqual(first["source_image_hash"], second["source_image_hash"])
         self.assertNotEqual(first["cache_key"], second["cache_key"])
@@ -144,7 +144,9 @@ class CropApiTest(unittest.TestCase):
             registry = build_track_registry(root)
             outside = workspace / "outside"
             outside.mkdir()
-            (root / "artifacts").symlink_to(outside, target_is_directory=True)
+            viewer_root = root / "track-viz"
+            viewer_root.mkdir()
+            (viewer_root / "artifacts").symlink_to(outside, target_is_directory=True)
             source_hash = registry.sources[0].source_hash
             client = TestClient(
                 create_app(
@@ -177,7 +179,7 @@ class CropApiTest(unittest.TestCase):
             )
             url = f"/api/sequences/fixture-gt/observations/1/crop?source_hash={source_hash}"
             first = client.get(url)
-            cache_file = next((root / "artifacts" / "viewer" / "cache").rglob("*.jpg"))
+            cache_file = next((root / "track-viz" / "artifacts" / "cache").rglob("*.jpg"))
             cache_file.unlink()
             outside = root / "outside.jpg"
             outside.write_bytes(b"outside cache content")
@@ -205,7 +207,7 @@ class CropApiTest(unittest.TestCase):
 
             with ThreadPoolExecutor(max_workers=8) as executor:
                 responses = tuple(executor.map(lambda _request: client.get(url), range(8)))
-            cache_files = tuple((root / "artifacts" / "viewer" / "cache").rglob("*.jpg"))
+            cache_files = tuple((root / "track-viz" / "artifacts" / "cache").rglob("*.jpg"))
 
         self.assertTrue(all(response.status_code == 200 for response in responses))
         self.assertEqual(len({response.json()["image_base64"] for response in responses}), 1)

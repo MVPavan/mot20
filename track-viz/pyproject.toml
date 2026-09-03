@@ -31,7 +31,8 @@ packages = ["src/mot20"]
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers"
 testpaths = ["tests"]
-norecursedirs = ["repos", "cvat", "datasets", "web", "artifacts"]
+pythonpath = [".", "src"]
+norecursedirs = ["web", "artifacts"]
 markers = [
     "local_data: read-only checks requiring the configured local MOT20 sources",
 ]
@@ -39,7 +40,7 @@ markers = [
 [tool.ruff]
 target-version = "py312"
 line-length = 120
-exclude = ["repos", "cvat", "datasets", "web", "artifacts"]
+exclude = ["web", "artifacts"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
@@ -48,7 +49,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 python_version = "3.12"
 strict = true
 files = ["src/mot20", "tests/viewer"]
-exclude = "^(repos|cvat|datasets|web|artifacts)/"
+exclude = "^(web|artifacts)/"
 warn_unreachable = true
 
 [[tool.mypy.overrides]]

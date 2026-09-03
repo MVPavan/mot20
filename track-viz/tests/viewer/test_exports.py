@@ -205,7 +205,7 @@ class ExportApiTest(unittest.TestCase):
             artifact_directory = root / first.json()["artifact_directory"]
             video_path = root / first.json()["video_path"]
             metadata_path = root / first.json()["metadata_path"]
-            self.assertEqual(artifact_directory.parent, root / "artifacts/viewer/exports")
+            self.assertEqual(artifact_directory.parent, root / "track-viz/artifacts/exports")
             self.assertTrue(video_path.is_file())
             self.assertTrue(metadata_path.is_file())
             self.assertFalse(any(path.name.startswith(".tmp-") for path in artifact_directory.parent.iterdir()))
@@ -262,7 +262,7 @@ class ExportApiTest(unittest.TestCase):
 
             self.assertEqual(response.status_code, 412)
             self.assertEqual(response.json()["error"]["code"], "source_result_changed")
-            self.assertFalse((root / "artifacts/viewer/exports").exists())
+            self.assertFalse((root / "track-viz/artifacts/exports").exists())
 
     def test_test_sequence_export_metadata_retains_adapted_classification(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -342,7 +342,7 @@ class ExportApiTest(unittest.TestCase):
                     frame_reader=failing_reader,
                 )
 
-            export_root = root / "artifacts/viewer/exports"
+            export_root = root / "track-viz/artifacts/exports"
             self.assertTrue(export_root.is_dir())
             self.assertEqual(tuple(export_root.iterdir()), ())
 
@@ -413,7 +413,7 @@ class OfflineExportCliTest(unittest.TestCase):
                 build_track_registry(root, fixture_name="second"),
                 sources=(source,),
             )
-            artifact_directory = root / "artifacts/viewer/exports/export-id"
+            artifact_directory = root / "track-viz/artifacts/exports/export-id"
             video_writer.return_value = Mock(
                 export_id="export-id",
                 status="created",

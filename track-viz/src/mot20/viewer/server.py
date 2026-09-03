@@ -21,7 +21,7 @@ from mot20.viewer.loaders import load_registry
 from mot20.viewer.tracks import track_router
 
 LOGGER = logging.getLogger(__name__)
-REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
 INTERNAL_ROUTERS = (
     track_router,
     color_router,

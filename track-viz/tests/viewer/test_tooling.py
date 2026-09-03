@@ -7,17 +7,17 @@ from pathlib import Path
 
 class ToolingContractTest(unittest.TestCase):
     def test_generated_environment_artifact_and_frontend_paths_are_ignored(self) -> None:
-        repository_root = Path(__file__).resolve().parents[2]
+        repository_root = Path(__file__).resolve().parents[3]
         generated_paths = (
             ".venv/bin/python",
-            "artifacts/viewer/cache/item.jpg",
-            "web/node_modules/package/index.js",
-            "web/dist/index.html",
-            "web/coverage/index.html",
-            "web/test-results/result.json",
-            "web/playwright-report/index.html",
-            "web/.playwright/browser/chrome",
-            "web/.vite/deps/module.js",
+            "track-viz/artifacts/cache/item.jpg",
+            "track-viz/web/node_modules/package/index.js",
+            "track-viz/web/dist/index.html",
+            "track-viz/web/coverage/index.html",
+            "track-viz/web/test-results/result.json",
+            "track-viz/web/playwright-report/index.html",
+            "track-viz/web/.playwright/browser/chrome",
+            "track-viz/web/.vite/deps/module.js",
         )
         for generated_path in generated_paths:
             with self.subTest(path=generated_path):

@@ -217,7 +217,7 @@ def _crop_cache_key(
 
 def _safe_cache_root(repository_root: Path) -> Path:
     root = Path(repository_root).resolve(strict=True)
-    cache_root = (root / "artifacts" / "viewer" / "cache").resolve(strict=False)
+    cache_root = (root / "track-viz" / "artifacts" / "cache").resolve(strict=False)
     if not cache_root.is_relative_to(root):
         raise ViewerApiError(
             409,

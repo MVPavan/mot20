@@ -16,7 +16,7 @@ from mot20.viewer.exports import (
 )
 from mot20.viewer.loaders import load_registry
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
 def main(argv: Sequence[str] | None = None) -> int:

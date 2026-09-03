@@ -357,7 +357,7 @@ def create_app(
     for router in extension_routers:
         app.include_router(router)
 
-    distribution = app.state.repository_root / "web" / "dist"
+    distribution = app.state.repository_root / "track-viz" / "web" / "dist"
     if (distribution / "index.html").is_file():
         app.mount("/", SpaStaticFiles(directory=distribution, html=True), name="frontend")
 
