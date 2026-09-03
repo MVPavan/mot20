@@ -52,6 +52,28 @@ child directory navigation. Direct absolute or repository-relative text entry
 remains available. Applying a source replaces the active source without
 restarting the process.
 
+For a background server with explicit lifecycle commands, use the Track-Viz
+service script from the repository root. The port defaults to 8000, the default
+configuration is `track-viz/configs/viewer.toml`, and `start` builds the current
+frontend before launching the backend:
+
+```bash
+./track-viz/scripts/manage_viewer.sh start
+./track-viz/scripts/manage_viewer.sh status
+./track-viz/scripts/manage_viewer.sh stop
+
+# Select another port.
+./track-viz/scripts/manage_viewer.sh start --port 8004
+./track-viz/scripts/manage_viewer.sh status --port 8004
+./track-viz/scripts/manage_viewer.sh restart --port 8004
+./track-viz/scripts/manage_viewer.sh stop --port 8004
+```
+
+Runtime PID and log files are ignored under `track-viz/artifacts/service/`.
+Stopping is ownership-aware: the script stops a Track-Viz `run_viewer.py`
+process on the selected port, but refuses to terminate an unrelated listener.
+Use `--config PATH` to select a different viewer configuration.
+
 A scripted launch may preselect the same two paths, and a different loopback
 port is explicit:
 
@@ -96,6 +118,34 @@ requires configured MOT20 files and takes several minutes. See
   missing provenance, stale source hashes, unavailable files, and capability
   reasons rather than synthesizing identity.
 
+### Focus Review Controls
+
+Focus keeps its review structure mounted while optional-event data refreshes.
+Each threshold is an independent local decimal draft: valid values commit after
+300 ms of inactivity, or immediately with Enter or blur. Empty, incomplete, or
+out-of-range drafts send no request; blur restores the last accepted value and
+announces the reason. Checkbox changes are independent and the newest combined
+settings win if requests overlap.
+
+Abrupt displacement, scale change, and close interaction are shown as separate
+families. Their counts distinguish backend raw matches from the UI's contiguous
+activity episodes, and their Previous/Next controls navigate episode anchors.
+Low-confidence observations are separate exact-frame controls; they are never
+merged into heuristic-family navigation. A disabled control stays visible and
+states whether its family is off, lacks matches, or has no destination.
+
+The sequence-wide timeline shows observation runs, explicit missing-frame gaps,
+endpoints, activity/low-confidence evidence, and the current-frame playhead.
+Clicking the rail seeks its exact rounded one-based frame. With rail focus,
+Arrow keys seek one frame, Shift+Arrow seeks ten, and Home/End seek sequence
+bounds. The crop filmstrip remains the focused visual evidence.
+
+Trajectory defaults to past-through-current observations. Complete track adds
+future evidence with a distinct dashed treatment. Both modes break at missing
+observations: no line is inferred through a gap. Image, observation, Context,
+and event-refresh statuses occupy overlays or reserved status space, so they do
+not move the viewport, timeline, filmstrip, or lower controls.
+
 The image bitmap cache accepts capacities 100 through 200 and defaults to 150.
 Forward playback prefetches stable 12-frame batches through three workers,
 deduplicates foreground and prefetch requests, and advances only after the
@@ -122,6 +172,11 @@ tracker, checkpoint, post-processing, review, and adaptation provenance.
 - The accepted real MOT20-01 Focus/Context journey uses track 72, frames
   404-429, which has no internal gaps. Gap journeys are therefore synthetic
   fixture evidence, not a real MOT20-01 gap claim.
+- Raw event density is not an activity-navigation verdict. In particular, a
+  zero displacement/scale threshold can match every valid transition and a zero
+  proximity threshold can match touching boxes; review raw-match counts and
+  episode anchors separately. Real track-72 observations are read-only and are
+  recorded as observations, never deterministic fixture expectations.
 - Browser exports have no dedicated UI control. The bounded POST API and offline
   CLI are documented in `track-viz/docs/exports.md`.
 - The locally exercised export codec is MP4V in an MP4 container. No broader

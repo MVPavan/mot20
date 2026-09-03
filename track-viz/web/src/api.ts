@@ -198,6 +198,41 @@ export interface EventSettings {
   close_interaction_operator: "less_than_or_equal";
 }
 
+export interface DisplacementEvent {
+  from_frame: number;
+  to_frame: number;
+  from_row_index: number;
+  to_row_index: number;
+  frame_delta: number;
+  center_displacement_pixels: number;
+  normalization_box_height: number;
+  normalized_displacement: number;
+  threshold: number;
+}
+
+export interface ScaleChangeEvent {
+  from_frame: number;
+  to_frame: number;
+  from_row_index: number;
+  to_row_index: number;
+  frame_delta: number;
+  absolute_height_change_pixels: number;
+  normalization_box_height: number;
+  normalized_scale_change: number;
+  threshold: number;
+}
+
+export interface CloseInteractionEvent {
+  frame: number;
+  focal_row_index: number;
+  competitor_track_id: number;
+  competitor_row_index: number;
+  edge_distance_pixels: number;
+  focal_box_height: number;
+  normalized_edge_proximity: number;
+  threshold: number;
+}
+
 export interface TimelineEventsResponse {
   source_key: string;
   sequence: string;
@@ -213,9 +248,9 @@ export interface TimelineEventsResponse {
     threshold_operator: "less_than_or_equal";
     diagnostic: Diagnostic | null;
   };
-  displacement_events: Array<{ from_frame: number; to_frame: number; threshold: number }>;
-  scale_change_events: Array<{ from_frame: number; to_frame: number; threshold: number }>;
-  close_interaction_events: Array<{ frame: number; threshold: number }>;
+  displacement_events: DisplacementEvent[];
+  scale_change_events: ScaleChangeEvent[];
+  close_interaction_events: CloseInteractionEvent[];
   low_confidence_observations: Observation[];
 }
 

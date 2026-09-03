@@ -1,6 +1,7 @@
 # Viewer Release Evidence
 
-Measured 2026-09-02 by `make e2e-real`. The machine-readable authority is
+Latest pointer/cache measurement: 2026-09-03 by `make e2e-real`. The
+machine-readable authority is
 `track-viz/artifacts/verification/browser-performance.json`; source manifests and
 their comparison are in the same ignored directory.
 
@@ -30,9 +31,9 @@ intersects five observations. After 120 warm-up samples:
 
 | Run | Samples | p50 | p95 | Required p95 |
 | ---: | ---: | ---: | ---: | ---: |
-| 1 | 1,000 | 16.6 ms | 16.7 ms | < 50 ms |
+| 1 | 1,000 | 16.6 ms | 16.8 ms | < 50 ms |
 | 2 | 1,000 | 16.6 ms | 16.8 ms | < 50 ms |
-| 3 | 1,000 | 16.6 ms | 16.7 ms | < 50 ms |
+| 3 | 1,000 | 16.6 ms | 16.8 ms | < 50 ms |
 
 Every run passed. No profiling or product optimization loop was required.
 
@@ -45,14 +46,14 @@ seek latency.
 
 | Measurement | p50 | p95 |
 | --- | ---: | ---: |
-| Cold seek to completed image draw | 26.6 ms | 30.7 ms |
-| Warm seek to completed image draw | 13.6 ms | 14.2 ms |
+| Cold seek to completed image draw | 24.4 ms | 38.6 ms |
+| Warm seek to completed image draw | 14.1 ms | 14.7 ms |
 
 The 500-frame real scrub observed:
 
 - configured cache bounds 100 through 200, default and active capacity 150
 - bitmap-count ceiling 150
-- explicit bitmap-release counter ceiling 504
+- explicit bitmap-release counter ceiling 538
 - observed Chromium `usedJSHeapSize` ceiling 10,000,000 bytes
 - strong frame ETag
   `"14dbf2e3bfe33afe6d48980dcf4f69c445b896c566308e4f6553b8b978643152"`
@@ -79,6 +80,12 @@ console, failed-request, or HTTP-error events.
 
 The focused export was hash-verified and decoded as 10 frames, 1920 x 1080,
 25 fps, MP4V. MP4V is the only locally claimed codec.
+
+The 2026-09-03 read-only track-72 Focus observation at frame 404 and
+displacement threshold 0.02 found 17 raw matches. Its next raw displacement
+frame and next grouped activity anchor were both 409. This is observational
+local-data evidence, not a deterministic fixture assertion; the durable ignored
+record is `artifacts/verification/mot20-01-track-72-focus-observation.json`.
 
 ## Source Integrity And Limits
 

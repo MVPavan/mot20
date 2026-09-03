@@ -19,7 +19,7 @@ import {
   type Rectangle as ContextRectangle,
 } from "./contextOverlayPlan";
 import { buildOverlayPlan, type OverlayPlan } from "./overlayPlan";
-import { buildFocusOverlayPlan, type FocusOverlayPlan } from "./focusOverlayPlan";
+import { buildFocusOverlayPlan, type FocusOverlayPlan, type TrajectoryMode } from "./focusOverlayPlan";
 import { initialSelectionState, reduceSelection } from "./selectionState";
 import { trackColor } from "./trackColor";
 import { createViewportTransform, type Point, type ViewportTransform } from "./viewport";
@@ -30,6 +30,7 @@ interface FrameViewportProps {
   imageUrl: string;
   observations: Observation[];
   observationStatus: "loading" | "ready" | "error";
+  contextStatus: "idle" | "loading" | "ready" | "error";
   cache: BitmapLru;
   loader: BitmapFrameLoader;
   prefetch: Array<{ frame: number; url: string }>;
@@ -37,6 +38,7 @@ interface FrameViewportProps {
   onPin(): void;
   focusTrackId: number | null;
   focusEvidence: import("./api").TrackEvidenceResponse | null;
+  trajectoryMode: TrajectoryMode;
   contextCompetitors: ContextCompetitor[];
   reviewMode: "focus" | "context";
   onFocus(observation: Observation): void;
@@ -172,14 +174,33 @@ function drawFocusOverlay(
   context.fillStyle = color;
   plan.commands.forEach((command) => {
     if (command.type === "focusTrace") {
+      context.save();
+      context.globalAlpha = command.future ? 0.42 : 0.72;
+      context.setLineDash(command.future ? [6 * dpr, 4 * dpr] : []);
       context.beginPath();
       command.points.forEach((point, index) => {
         const screen = transform.imageToScreen(point);
         if (index === 0) context.moveTo(screen.x * dpr, screen.y * dpr);
         else context.lineTo(screen.x * dpr, screen.y * dpr);
       });
-      context.lineWidth = 2 * dpr;
-      context.stroke();
+      if (command.points.length > 1 && !command.markersOnly) {
+        context.lineWidth = (command.future ? 1.5 : 2.5) * dpr;
+        context.stroke();
+      }
+      context.setLineDash([]);
+      command.points.forEach((point) => {
+        const screen = transform.imageToScreen(point);
+        context.beginPath();
+        if (command.future) {
+          context.rect((screen.x - 2.5) * dpr, (screen.y - 2.5) * dpr, 5 * dpr, 5 * dpr);
+          context.lineWidth = 1.5 * dpr;
+          context.stroke();
+        } else {
+          context.arc(screen.x * dpr, screen.y * dpr, 2.5 * dpr, 0, Math.PI * 2);
+          context.fill();
+        }
+      });
+      context.restore();
       return;
     }
     const geometry = command.observation.display_geometry;
@@ -262,6 +283,7 @@ export function FrameViewport({
   imageUrl,
   observations,
   observationStatus,
+  contextStatus,
   cache,
   loader,
   prefetch,
@@ -269,6 +291,7 @@ export function FrameViewport({
   onPin,
   focusTrackId,
   focusEvidence,
+  trajectoryMode,
   contextCompetitors,
   reviewMode,
   onFocus,
@@ -420,8 +443,7 @@ export function FrameViewport({
       }
       context.clearRect(0, 0, canvas.width, canvas.height);
       if (focusTrackId !== null && focusEvidence !== null) {
-        const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
-        const plan = buildFocusOverlayPlan(focusEvidence.observations, frame, reducedMotion ? 1 : 8);
+        const plan = buildFocusOverlayPlan(focusEvidence.observations, frame, { mode: trajectoryMode, maximumVertices: 512 });
         const focalBox = plan.commands.find((command) => command.type === "focusBox");
         const contextPlan = reviewMode === "context" && focalBox !== undefined
           ? buildContextOverlayPlan(
@@ -444,6 +466,7 @@ export function FrameViewport({
         canvas.dataset.labelIntersectionCount = String(contextPlan?.labelIntersectionCount ?? 0);
         canvas.dataset.focalStrokeWidth = String(contextPlan?.focalStrokeWidth ?? 4);
         canvas.dataset.contextStrokeWidth = String(contextPlan?.contextStrokeWidth ?? CONTEXT_STROKE_WIDTH);
+        canvas.dataset.trajectorySimplified = String(plan.simplified);
         if (contextPlan !== null) {
           drawContextOverlay(context, contextPlan, transform, viewportSize.width, source.sequence);
         }
@@ -467,7 +490,7 @@ export function FrameViewport({
       }
     });
     return () => cancelAnimationFrame(animationFrame);
-  }, [contextCompetitors, focusEvidence, focusTrackId, frame, imageState, pointerImage, regions, revealAll, reviewMode, selection, source.sequence, transform, viewportSize]);
+  }, [contextCompetitors, focusEvidence, focusTrackId, frame, imageState, pointerImage, regions, revealAll, reviewMode, selection, source.sequence, trajectoryMode, transform, viewportSize]);
 
   useEffect(() => {
     const canvas = overlayCanvasRef.current;
@@ -624,17 +647,27 @@ export function FrameViewport({
             Exact frame {frame} could not be loaded.
           </p>
         )}
-        {imageState.status === "ready" && observationStatus === "loading" && (
-          <p className="viewport__observation-state" role="status">Loading observations</p>
-        )}
-        {observationStatus === "error" && (
-          <p className="viewport__observation-state viewport__observation-state--error" role="alert">
-            Frame observations could not be loaded.
-          </p>
-        )}
-        {observationStatus === "ready" && observations.length === 0 && (
-          <p className="viewport__observation-state">No observations on frame {frame}</p>
-        )}
+        <div className="viewport__status-stack">
+          {imageState.status === "ready" && observationStatus === "loading" && (
+            <p className="viewport__observation-state" role="status">Loading observations</p>
+          )}
+          {observationStatus === "error" && (
+            <p className="viewport__observation-state viewport__observation-state--error" role="alert">
+              Frame observations could not be loaded.
+            </p>
+          )}
+          {observationStatus === "ready" && observations.length === 0 && (
+            <p className="viewport__observation-state">No observations on frame {frame}</p>
+          )}
+          {contextStatus === "loading" && (
+            <p className="viewport__observation-state" role="status">Loading context evidence</p>
+          )}
+          {contextStatus === "error" && (
+            <p className="viewport__observation-state viewport__observation-state--error" role="alert">
+              Context evidence could not be loaded.
+            </p>
+          )}
+        </div>
       </div>
 
       {selection.mode === "pinned" && pinnedCandidates.length > 0 && (

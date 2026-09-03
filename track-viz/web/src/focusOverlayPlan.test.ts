@@ -29,14 +29,55 @@ describe("Focus overlay plan", () => {
     const plan = buildFocusOverlayPlan(focal, 4, 8);
 
     expect(plan.commands.filter((command) => command.type === "focusBox")).toEqual([]);
-    expect(plan.commands).toEqual([
-      {
-        type: "focusTrace",
-        points: [
-          { x: 25, y: 40 },
-          { x: 45, y: 40 },
-        ],
-      },
+    expect(plan.commands.filter((command) => command.type === "focusTrace").map((command) => command.frames)).toEqual([[1], [3]]);
+  });
+
+  it("keeps past evidence separate from future evidence and breaks every observation gap", () => {
+    const plan = buildFocusOverlayPlan(
+      [observation(1, 1), observation(2, 2), observation(4, 4), observation(5, 5), observation(7, 7)],
+      4,
+      { mode: "complete", maximumVertices: 512 },
+    );
+
+    const traces = plan.commands.filter((command) => command.type === "focusTrace");
+    expect(traces).toHaveLength(4);
+    expect(traces.map((trace) => ({ future: trace.future, frames: trace.frames }))).toEqual([
+      { future: false, frames: [1, 2] },
+      { future: false, frames: [4] },
+      { future: true, frames: [5] },
+      { future: true, frames: [7] },
     ]);
+    expect(plan.commands.find((command) => command.type === "focusBox")).toMatchObject({ observation: { frame: 4 } });
+  });
+
+  it("bounds dense trajectories while retaining first, last, current, and gap boundaries", () => {
+    const dense = Array.from({ length: 700 }, (_, index) => observation(index + 1, index + 1));
+    dense.splice(300, 1);
+    const plan = buildFocusOverlayPlan(dense, 400, { mode: "complete", maximumVertices: 512 });
+    const frames = plan.commands.filter((command) => command.type === "focusTrace").flatMap((command) => command.frames);
+
+    expect(frames).toHaveLength(512);
+    expect(frames).toEqual(expect.arrayContaining([1, 300, 302, 700, 400]));
+  });
+
+  it("falls back to unconnected bounded markers when gap boundaries alone exceed the budget", () => {
+    const sparse = Array.from({ length: 700 }, (_, index) => observation(index * 2 + 1, index + 1));
+    const plan = buildFocusOverlayPlan(sparse, 401, { mode: "complete", maximumVertices: 512 });
+    const traces = plan.commands.filter((command) => command.type === "focusTrace");
+
+    expect(plan.simplified).toBe(true);
+    expect(traces).toHaveLength(512);
+    expect(traces.every((trace) => trace.markersOnly)).toBe(true);
+  });
+
+  it("retains global endpoints and an interior current observation in the boundary-overflow fallback", () => {
+    const continuous = Array.from({ length: 1_000 }, (_, index) => observation(index + 1, index + 1));
+    const gapped = Array.from({ length: 600 }, (_, index) => observation(1_002 + index * 2, 2_000 + index));
+    const plan = buildFocusOverlayPlan([...continuous, ...gapped], 500, { mode: "complete", maximumVertices: 512 });
+    const frames = plan.commands.filter((command) => command.type === "focusTrace").flatMap((command) => command.frames);
+
+    expect(frames).toHaveLength(512);
+    expect(frames).toEqual(expect.arrayContaining([1, 500, 2_200]));
+    expect(plan.commands.filter((command) => command.type === "focusTrace").every((command) => command.markersOnly)).toBe(true);
   });
 });

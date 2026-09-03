@@ -39,6 +39,20 @@ const DEFAULT_EVENT_SETTINGS: EventSettings = {
   close_interaction_operator: "less_than_or_equal",
 };
 
+function sameEventSettings(left: EventSettings, right: EventSettings): boolean {
+  return (
+    left.displacement_enabled === right.displacement_enabled &&
+    left.displacement_threshold === right.displacement_threshold &&
+    left.displacement_operator === right.displacement_operator &&
+    left.scale_change_enabled === right.scale_change_enabled &&
+    left.scale_change_threshold === right.scale_change_threshold &&
+    left.scale_change_operator === right.scale_change_operator &&
+    left.close_interaction_enabled === right.close_interaction_enabled &&
+    left.close_interaction_threshold === right.close_interaction_threshold &&
+    left.close_interaction_operator === right.close_interaction_operator
+  );
+}
+
 function provenanceValue(value: string | number | null): string {
   return value === null ? "Not provided" : String(value);
 }
@@ -173,11 +187,18 @@ function Viewer({ source, frameDraft, setFrameDraft }: ViewerProps) {
   const [timelineEvents, setTimelineEvents] = useState<TimelineEventsResponse | null>(null);
   const [focusStatus, setFocusStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [reviewMode, setReviewMode] = useState<"focus" | "context">("focus");
+  const [trajectoryMode, setTrajectoryMode] = useState<"past" | "complete">("past");
   const [contextCount, setContextCount] = useState(3);
   const [contextCompetitors, setContextCompetitors] = useState<ContextCompetitor[]>([]);
   const [contextStatus, setContextStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [eventSettings, setEventSettings] = useState<EventSettings>(DEFAULT_EVENT_SETTINGS);
+  const [eventStatus, setEventStatus] = useState<"idle" | "loading" | "updating" | "error">("idle");
+  const [eventError, setEventError] = useState("");
+  const [eventRetry, setEventRetry] = useState(0);
   const contextTrackIdsRef = useRef<number[]>([]);
+  const eventRequestIdRef = useRef(0);
+  const skipEventSettingsRequestRef = useRef(false);
+  const lastSuccessfulEventSettingsRef = useRef<EventSettings>(DEFAULT_EVENT_SETTINGS);
   const missingProvenance = Object.entries(source.provenance)
     .filter(([, value]) => value === null)
     .map(([field]) => field.replaceAll("_", " "));
@@ -199,18 +220,22 @@ function Viewer({ source, frameDraft, setFrameDraft }: ViewerProps) {
       setFilmstrip(null);
       setTimelineEvents(null);
       setFocusStatus("idle");
+      setEventStatus("idle");
+      setEventError("");
       return;
     }
     const controller = new AbortController();
     let active = true;
     setFocusStatus("loading");
+    setTrackEvidence(null);
+    setFilmstrip(null);
+    setTimelineEvents(null);
     Promise.all([
       fetchTrackEvidence(source, focusTarget.trackId, focusTarget.confirmedRowIndex, controller.signal),
       fetchTrackFilmstrip(source, focusTarget.trackId, focusTarget.confirmedRowIndex, controller.signal),
-      fetchTimelineEvents(source, focusTarget.trackId, eventSettings, controller.signal),
     ])
-      .then(([evidence, nextFilmstrip, events]) => {
-        const responses = [evidence, nextFilmstrip, events];
+      .then(([evidence, nextFilmstrip]) => {
+        const responses = [evidence, nextFilmstrip];
         if (!active) return;
         if (
           responses.some(
@@ -224,14 +249,12 @@ function Viewer({ source, frameDraft, setFrameDraft }: ViewerProps) {
         }
         setTrackEvidence(evidence);
         setFilmstrip(nextFilmstrip);
-        setTimelineEvents(events);
         setFocusStatus("ready");
       })
       .catch((error: unknown) => {
         if (active && !(error instanceof DOMException && error.name === "AbortError")) {
           setTrackEvidence(null);
           setFilmstrip(null);
-          setTimelineEvents(null);
           setFocusStatus("error");
         }
       });
@@ -239,7 +262,59 @@ function Viewer({ source, frameDraft, setFrameDraft }: ViewerProps) {
       active = false;
       controller.abort();
     };
-  }, [eventSettings, focusTarget, source]);
+  }, [focusTarget, source]);
+
+  useEffect(() => {
+    if (focusTarget === null) {
+      eventRequestIdRef.current += 1;
+      return;
+    }
+    if (skipEventSettingsRequestRef.current) {
+      skipEventSettingsRequestRef.current = false;
+      return;
+    }
+    const controller = new AbortController();
+    const requestId = ++eventRequestIdRef.current;
+    const requestedSettings = eventSettings;
+    setEventStatus(timelineEvents === null ? "loading" : "updating");
+    setEventError("");
+    fetchTimelineEvents(source, focusTarget.trackId, requestedSettings, controller.signal)
+      .then((events) => {
+        if (requestId !== eventRequestIdRef.current) return;
+        if (
+          events.source_key !== source.source_key ||
+          events.source_hash !== source.source_hash ||
+          events.track_id !== focusTarget.trackId
+        ) {
+          throw new Error("Timeline event response identity did not match the active Focus source");
+        }
+        lastSuccessfulEventSettingsRef.current = events.settings;
+        setTimelineEvents(events);
+        setEventSettings((current) => (
+          sameEventSettings(current, events.settings) ? current : events.settings
+        ));
+        setEventStatus("idle");
+      })
+      .catch((error: unknown) => {
+        if (
+          requestId !== eventRequestIdRef.current ||
+          (error instanceof DOMException && error.name === "AbortError")
+        ) {
+          return;
+        }
+        if (!sameEventSettings(requestedSettings, lastSuccessfulEventSettingsRef.current)) {
+          skipEventSettingsRequestRef.current = true;
+        }
+        setEventSettings((current) => (
+          sameEventSettings(current, lastSuccessfulEventSettingsRef.current)
+            ? current
+            : lastSuccessfulEventSettingsRef.current
+        ));
+        setEventStatus("error");
+        setEventError("Event refresh failed; showing the last successful settings.");
+      });
+    return () => controller.abort();
+  }, [eventRetry, eventSettings, focusTarget, source]);
 
   useEffect(() => {
     if (focusTarget === null || reviewMode !== "context" || !frameIsValid) {
@@ -332,6 +407,11 @@ function Viewer({ source, frameDraft, setFrameDraft }: ViewerProps) {
   function seek(nextFrame: number): void {
     const bounded = Math.min(source.frame_count, Math.max(1, Math.trunc(nextFrame)));
     setFrameDraft(String(bounded));
+  }
+
+  function updateEventSettings(update: (settings: EventSettings) => EventSettings): void {
+    eventRequestIdRef.current += 1;
+    setEventSettings(update);
   }
 
   function handleWorkspaceKey(event: ReactKeyboardEvent<HTMLElement>): void {
@@ -455,10 +535,12 @@ function Viewer({ source, frameDraft, setFrameDraft }: ViewerProps) {
           loader={loader}
           observationStatus={observationStatus}
           observations={observations}
+          contextStatus={contextStatus}
           onFrameReady={setReadyFrame}
           onPin={() => setPlaying(false)}
           focusEvidence={trackEvidence}
           focusTrackId={focusTarget?.trackId ?? null}
+          trajectoryMode={trajectoryMode}
           onExitFocus={() => setFocusTarget(null)}
           onFocus={(observation) => {
             if (observation.usable_track_id !== null) {
@@ -475,16 +557,12 @@ function Viewer({ source, frameDraft, setFrameDraft }: ViewerProps) {
         />
       )}
 
-      {reviewMode === "context" && contextStatus === "loading" && (
-        <p className="context-state" role="status">Loading context evidence</p>
-      )}
-      {reviewMode === "context" && contextStatus === "error" && (
-        <p className="context-state context-state--error" role="alert">Context evidence could not be loaded.</p>
-      )}
-
       <FocusReview
         contextCount={contextCount}
         evidence={trackEvidence}
+        eventError={eventError}
+        eventSettings={eventSettings}
+        eventStatus={eventStatus}
         events={timelineEvents}
         filmstrip={filmstrip}
         focusStatus={focusStatus}
@@ -492,11 +570,14 @@ function Viewer({ source, frameDraft, setFrameDraft }: ViewerProps) {
         frame={frame}
         mode={reviewMode}
         onContextCountChange={setContextCount}
-        onEventSettingsChange={setEventSettings}
+        onEventSettingsChange={updateEventSettings}
         onExit={() => setFocusTarget(null)}
         onModeChange={setReviewMode}
+        onRetryEvents={() => setEventRetry((value) => value + 1)}
         onSeek={seek}
+        onTrajectoryModeChange={setTrajectoryMode}
         source={source}
+        trajectoryMode={trajectoryMode}
       />
 
       <dl className="source-status">

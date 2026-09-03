@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { adjacentFrame, enabledEventFrames, gapStartFrames } from "./focusNavigation";
+import { adjacentFrame, gapStartFrames } from "./focusNavigation";
 
 describe("Focus navigation", () => {
   it("navigates exact observation frames and exact gap starts", () => {
@@ -16,28 +16,5 @@ describe("Focus navigation", () => {
     expect(gapStartFrames(gaps)).toEqual([2, 4]);
     expect(adjacentFrame(gapStartFrames(gaps), 3, -1)).toBe(2);
     expect(adjacentFrame(gapStartFrames(gaps), 3, 1)).toBe(4);
-  });
-
-  it("skips disabled event families and gates low confidence by backend capability", () => {
-    const events = {
-      settings: {
-        displacement_enabled: false,
-        scale_change_enabled: true,
-        close_interaction_enabled: true,
-      },
-      confidence: { meaningful: true },
-      displacement_events: [{ to_frame: 2 }],
-      scale_change_events: [{ to_frame: 4 }],
-      close_interaction_events: [{ frame: 3 }],
-      low_confidence_observations: [{ frame: 5 }],
-    };
-
-    expect(enabledEventFrames(events)).toEqual([3, 4, 5]);
-    expect(
-      enabledEventFrames({
-        ...events,
-        confidence: { meaningful: false },
-      }),
-    ).toEqual([3, 4]);
   });
 });

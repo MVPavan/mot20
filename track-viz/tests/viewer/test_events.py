@@ -170,6 +170,53 @@ class EventApiTest(unittest.TestCase):
         self.assertEqual(event["center_displacement_pixels"], 4.0)
         self.assertEqual(event["normalized_displacement"], 0.5)
 
+    def test_raw_event_families_preserve_contiguous_flagged_records_at_thresholds(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            registry = build_track_registry(
+                root,
+                adapter="mot_result_10",
+                rows=(
+                    "1,1,0,0,2,4,0.9,-1,-1,-1",
+                    "2,1,4,0,2,8,0.8,-1,-1,-1",
+                    "3,1,8,0,2,16,0.7,-1,-1,-1",
+                    "1,2,1,0,2,4,0.9,-1,-1,-1",
+                    "2,2,5,0,2,8,0.9,-1,-1,-1",
+                    "3,2,9,0,2,16,0.9,-1,-1,-1",
+                ),
+            )
+            client = TestClient(
+                create_app(
+                    registry=registry,
+                    repository_root=root,
+                    extension_routers=(event_router,),
+                )
+            )
+            response = client.get(
+                "/api/sequences/fixture-gt/tracks/1/events"
+                "?enable_displacement=true&displacement_threshold=0.5"
+                "&enable_scale_change=true&scale_change_threshold=0.5"
+                "&enable_close_interaction=true&close_interaction_threshold=0"
+            )
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(
+            [(item["from_frame"], item["to_frame"], item["frame_delta"])
+            for item in payload["displacement_events"]],
+            [(1, 2, 1), (2, 3, 1)],
+        )
+        self.assertEqual(
+            [(item["from_frame"], item["to_frame"], item["frame_delta"])
+            for item in payload["scale_change_events"]],
+            [(1, 2, 1), (2, 3, 1)],
+        )
+        self.assertEqual(
+            [(item["frame"], item["competitor_track_id"], item["normalized_edge_proximity"])
+            for item in payload["close_interaction_events"]],
+            [(1, 2, 0.0), (2, 2, 0.0), (3, 2, 0.0)],
+        )
+
     def test_events_are_hash_scoped_and_sentinel_only_tracks_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

@@ -139,6 +139,12 @@ const gappedMetadata = {
   sequence: "SYNTHETIC-GAPPED",
   source_hash: "d".repeat(64),
 };
+const activityMetadata = {
+  ...continuousMetadata,
+  source_key: "synthetic-tracked-activities",
+  sequence: "SYNTHETIC-ACTIVITIES",
+  source_hash: "e".repeat(64),
+};
 const TRACKED_OBSERVATIONS = new Map([
   [continuousMetadata.source_key, [
     trackedObservation(continuousMetadata, 1, 1001),
@@ -150,10 +156,74 @@ const TRACKED_OBSERVATIONS = new Map([
     trackedObservation(gappedMetadata, 3, 2003),
     trackedObservation(gappedMetadata, 5, 2005),
   ]],
+  [activityMetadata.source_key, [
+    trackedObservation(activityMetadata, 1, 3001),
+    trackedObservation(activityMetadata, 2, 3002),
+    trackedObservation(activityMetadata, 3, 3003),
+    trackedObservation(activityMetadata, 4, 3004),
+    trackedObservation(activityMetadata, 5, 3005),
+  ]],
 ]);
 
-async function installTrackedFixtureRoutes(page: Page, requestedFrames: number[]) {
-  const sources = [continuousMetadata, gappedMetadata, metadata];
+const RAW_NEXT_DISPLACEMENT_FRAME = 2;
+const GROUPED_NEXT_DISPLACEMENT_ANCHOR = 5;
+
+function displacementEvent(fromFrame: number, toFrame: number, normalizedDisplacement: number, sourceRowOffset = 3000) {
+  return {
+    from_frame: fromFrame,
+    to_frame: toFrame,
+    from_row_index: sourceRowOffset + fromFrame,
+    to_row_index: sourceRowOffset + toFrame,
+    frame_delta: toFrame - fromFrame,
+    center_displacement_pixels: normalizedDisplacement * 125,
+    normalization_box_height: 125,
+    normalized_displacement: normalizedDisplacement,
+    threshold: 0.02,
+  };
+}
+
+function scaleChangeEvent(fromFrame: number, toFrame: number, normalizedScaleChange: number, sourceRowOffset = 3000) {
+  return {
+    from_frame: fromFrame,
+    to_frame: toFrame,
+    from_row_index: sourceRowOffset + fromFrame,
+    to_row_index: sourceRowOffset + toFrame,
+    frame_delta: toFrame - fromFrame,
+    absolute_height_change_pixels: normalizedScaleChange * 125,
+    normalization_box_height: 125,
+    normalized_scale_change: normalizedScaleChange,
+    threshold: 0.5,
+  };
+}
+
+function proximityEvent(frame: number, normalizedEdgeProximity: number) {
+  return {
+    frame,
+    focal_row_index: 3000 + frame,
+    competitor_track_id: 9,
+    competitor_row_index: 9000 + frame,
+    edge_distance_pixels: normalizedEdgeProximity * 125,
+    focal_box_height: 125,
+    normalized_edge_proximity: normalizedEdgeProximity,
+    threshold: 0.25,
+  };
+}
+
+type FixtureResponseOutcome = void | "error";
+
+interface TrackedFixtureOptions {
+  beforeEventResponse?(requestIndex: number, url: URL): Promise<FixtureResponseOutcome> | FixtureResponseOutcome;
+  beforeContextResponse?(frame: number, requestIndex: number, url: URL): Promise<FixtureResponseOutcome> | FixtureResponseOutcome;
+  beforeObservationResponse?(frame: number, requestIndex: number, url: URL): Promise<FixtureResponseOutcome> | FixtureResponseOutcome;
+  beforeImageResponse?(frame: number, requestIndex: number, url: URL): Promise<FixtureResponseOutcome> | FixtureResponseOutcome;
+}
+
+async function installTrackedFixtureRoutes(
+  page: Page,
+  requestedFrames: number[],
+  options: TrackedFixtureOptions = {},
+) {
+  const sources = [continuousMetadata, gappedMetadata, activityMetadata, metadata];
   await installSourceSetupRoutes(page, metadata);
   await page.route("**/api/sequences", (route) => route.fulfill({
     contentType: "application/json",
@@ -172,12 +242,17 @@ async function installTrackedFixtureRoutes(page: Page, requestedFrames: number[]
       samples: observations.map((observation) => ({ is_current: observation.row_index === currentRowIndex, observation })),
     }) });
   });
-  await page.route(/\/api\/sequences\/[^/]+\/tracks\/8\/events(?:\?.*)?$/, (route) => {
+  let eventRequestIndex = 0;
+  await page.route(/\/api\/sequences\/[^/]+\/tracks\/8\/events(?:\?.*)?$/, async (route) => {
     const url = new URL(route.request().url());
+    eventRequestIndex += 1;
+    if (await options.beforeEventResponse?.(eventRequestIndex, url) === "error") {
+      return route.fulfill({ status: 503, body: "synthetic event failure" });
+    }
     const sourceKey = url.pathname.split("/")[3];
     const source = sources.find((item) => item.source_key === sourceKey)!;
     const observations = TRACKED_OBSERVATIONS.get(sourceKey)!;
-    const meaningful = sourceKey === gappedMetadata.source_key;
+    const meaningful = sourceKey === gappedMetadata.source_key || sourceKey === activityMetadata.source_key;
     const displacementEnabled = url.searchParams.get("enable_displacement") === "true";
     const scaleEnabled = url.searchParams.get("enable_scale_change") === "true";
     const interactionEnabled = url.searchParams.get("enable_close_interaction") === "true";
@@ -190,16 +265,36 @@ async function installTrackedFixtureRoutes(page: Page, requestedFrames: number[]
         close_interaction_enabled: interactionEnabled, close_interaction_threshold: Number(url.searchParams.get("close_interaction_threshold") ?? 0.25), close_interaction_operator: "less_than_or_equal",
       },
       confidence: { status: meaningful ? "meaningful" : "constant", meaningful, score_semantics: "tracker_score", threshold: 0.85, threshold_operator: "less_than_or_equal", diagnostic: null },
-      displacement_events: displacementEnabled ? [{ from_frame: 1, to_frame: 2, threshold: 0.5 }] : [],
-      scale_change_events: [], close_interaction_events: [],
-      low_confidence_observations: meaningful ? [observations[1]] : [],
+      displacement_events: displacementEnabled
+        ? sourceKey === activityMetadata.source_key
+          ? [
+            displacementEvent(1, RAW_NEXT_DISPLACEMENT_FRAME, 0.03),
+            displacementEvent(2, 3, 0.04),
+            displacementEvent(4, GROUPED_NEXT_DISPLACEMENT_ANCHOR, 0.06),
+          ]
+          : [displacementEvent(1, 2, 0.5, 1000)]
+        : [],
+      scale_change_events: scaleEnabled && sourceKey === activityMetadata.source_key
+        ? [scaleChangeEvent(2, 4, 0.6)]
+        : [],
+      close_interaction_events: interactionEnabled && sourceKey === activityMetadata.source_key
+        ? [proximityEvent(1, 0.25), proximityEvent(2, 0.2), proximityEvent(3, 0.15)]
+        : [],
+      low_confidence_observations: meaningful
+        ? sourceKey === activityMetadata.source_key ? [observations[1], observations[3]] : [observations[1]]
+        : [],
     }) });
   });
-  await page.route(/\/api\/sequences\/[^/]+\/tracks\/8\/context(?:\?.*)?$/, (route) => {
+  let contextRequestIndex = 0;
+  await page.route(/\/api\/sequences\/[^/]+\/tracks\/8\/context(?:\?.*)?$/, async (route) => {
     const url = new URL(route.request().url());
     const sourceKey = url.pathname.split("/")[3];
     const source = sources.find((item) => item.source_key === sourceKey)!;
     const frame = Number(url.searchParams.get("frame"));
+    contextRequestIndex += 1;
+    if (await options.beforeContextResponse?.(frame, contextRequestIndex, url) === "error") {
+      return route.fulfill({ status: 503, body: "synthetic context failure" });
+    }
     const focal = TRACKED_OBSERVATIONS.get(sourceKey)!.find((item) => item.frame === frame)!;
     const count = Number(url.searchParams.get("count"));
     const competitors = Array.from({ length: 8 }, (_, index) => ({
@@ -258,10 +353,15 @@ async function installTrackedFixtureRoutes(page: Page, requestedFrames: number[]
       previous_observation: null, next_observation: null, observations,
     }) });
   });
-  await page.route(/\/api\/sequences\/[^/]+\/frames\/\d+\/observations(?:\?.*)?$/, (route) => {
+  let observationRequestIndex = 0;
+  await page.route(/\/api\/sequences\/[^/]+\/frames\/\d+\/observations(?:\?.*)?$/, async (route) => {
     const url = new URL(route.request().url());
     const sourceKey = url.pathname.split("/")[3];
     const frame = Number(url.pathname.split("/")[5]);
+    observationRequestIndex += 1;
+    if (await options.beforeObservationResponse?.(frame, observationRequestIndex, url) === "error") {
+      return route.fulfill({ status: 503, body: "synthetic observation failure" });
+    }
     const source = sources.find((item) => item.source_key === sourceKey)!;
     const tracked = TRACKED_OBSERVATIONS.get(sourceKey)?.filter((item) => item.frame === frame) ?? [];
     const unrelated = sourceKey === metadata.source_key ? (OBSERVATIONS_BY_FRAME[frame] ?? []) : [
@@ -285,12 +385,17 @@ async function installTrackedFixtureRoutes(page: Page, requestedFrames: number[]
       media_type: "image/jpeg", image_base64: JPEG_BY_FRAME[observation.frame],
     }) });
   });
-  await page.route(/\/api\/sequences\/[^/]+\/frames\/\d+(?:\?.*)?$/, (route) => {
+  let imageRequestIndex = 0;
+  await page.route(/\/api\/sequences\/[^/]+\/frames\/\d+(?:\?.*)?$/, async (route) => {
     const url = new URL(route.request().url());
     const sourceKey = url.pathname.split("/")[3];
     const frame = Number(url.pathname.split("/")[5]);
     const source = sources.find((item) => item.source_key === sourceKey)!;
     expect(url.searchParams.get("source_hash")).toBe(source.source_hash);
+    imageRequestIndex += 1;
+    if (await options.beforeImageResponse?.(frame, imageRequestIndex, url) === "error") {
+      return route.fulfill({ status: 503, body: "synthetic image failure" });
+    }
     requestedFrames.push(frame);
     return route.fulfill({ contentType: "image/jpeg", body: Buffer.from(JPEG_BY_FRAME[frame], "base64") });
   });
@@ -503,8 +608,54 @@ async function assertNoHorizontalOverflow(page: Page): Promise<void> {
   );
 }
 
-async function assertNoSeriousAccessibilityViolations(page: Page): Promise<void> {
-  const results = await new AxeBuilder({ page })
+async function reviewLayout(page: Page): Promise<Record<string, { x: number; y: number; width: number; height: number }>> {
+  const targets = {
+    focus: page.getByRole("region", { name: "Focus review for track 8" }),
+    viewport: page.getByTestId("frame-viewport"),
+    timeline: page.getByLabel("Track timeline"),
+    filmstrip: page.getByLabel(/Track filmstrip/),
+    sourceStatus: page.locator(".source-status"),
+  };
+  return Object.fromEntries(await Promise.all(Object.entries(targets).map(async ([name, target]) => {
+    const box = await target.evaluate((element) => {
+      const rect = element.getBoundingClientRect();
+      return { x: rect.x + scrollX, y: rect.y + scrollY, width: rect.width, height: rect.height };
+    });
+    if (box.width === 0 || box.height === 0) throw new Error(`${name} was not visible while measuring review layout`);
+    return [name, box];
+  })));
+}
+
+function expectStableReviewLayout(
+  before: Record<string, { x: number; y: number; width: number; height: number }>,
+  current: Record<string, { x: number; y: number; width: number; height: number }>,
+): void {
+  for (const name of Object.keys(before)) {
+    expect(Math.abs(current[name].x - before[name].x), `${name} x position`).toBeLessThanOrEqual(1);
+    expect(Math.abs(current[name].y - before[name].y), `${name} y position`).toBeLessThanOrEqual(1);
+    expect(Math.abs(current[name].width - before[name].width), `${name} width`).toBeLessThanOrEqual(1);
+    expect(Math.abs(current[name].height - before[name].height), `${name} height`).toBeLessThanOrEqual(1);
+  }
+}
+
+async function openContinuousFocus(page: Page): Promise<void> {
+  await page.goto("/");
+  await page.getByLabel("Source", { exact: true }).selectOption(continuousMetadata.source_key);
+  await page.getByLabel("Exact track ID").fill("8");
+  await page.getByRole("button", { name: "Find track" }).click();
+  await expect(page.getByRole("region", { name: "Focus review for track 8" })).toBeVisible();
+}
+
+async function assertUnrelatedFocusControlOperable(page: Page): Promise<void> {
+  const contextCount = page.getByRole("spinbutton", { name: "Context tracks" });
+  await contextCount.fill("3");
+  await expect(contextCount).toHaveValue("3");
+}
+
+async function assertNoSeriousAccessibilityViolations(page: Page, include?: string): Promise<void> {
+  const builder = new AxeBuilder({ page });
+  if (include !== undefined) builder.include(include);
+  const results = await builder
     .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
     .analyze();
   const violations = results.violations.filter(
@@ -746,7 +897,198 @@ test("Explore, pinned chooser, and Focus have no serious or critical accessibili
   await page.getByRole("button", { name: "Find track" }).click();
   await expect(page.getByRole("region", { name: "Focus review for track 8" })).toBeVisible();
   await assertNoSeriousAccessibilityViolations(page);
+  for (const target of [
+    ".track-timeline__rail",
+    '[aria-label="Displacement activity controls"]',
+    '[aria-label="Scale change activity controls"]',
+    '[aria-label="Proximity activity controls"]',
+    '[aria-label="Low-confidence observation controls"]',
+    ".trajectory-control",
+  ]) await assertNoSeriousAccessibilityViolations(page, target);
+
+  await page.getByLabel("Source", { exact: true }).selectOption(activityMetadata.source_key);
+  await page.getByLabel("Exact track ID").fill("8");
+  await page.getByRole("button", { name: "Find track" }).click();
+  await expect(page.getByRole("region", { name: "Focus review for track 8" })).toBeVisible();
+  await page.getByRole("checkbox", { name: "Abrupt displacement" }).check();
+  await page.getByRole("checkbox", { name: "Scale change" }).check();
+  await page.getByRole("checkbox", { name: "Close interaction" }).check();
+  await expect(page.getByRole("button", { name: "Next Scale change activity" })).toBeEnabled();
+  for (const target of [
+    ".track-timeline__rail",
+    '[aria-label="Displacement activity controls"]',
+    '[aria-label="Scale change activity controls"]',
+    '[aria-label="Proximity activity controls"]',
+    '[aria-label="Low-confidence observation controls"]',
+    ".trajectory-control",
+  ]) await assertNoSeriousAccessibilityViolations(page, target);
   expect(errors).toEqual([]);
+});
+
+test("delayed Context playback keeps the Focus review geometry fixed", async ({ page }) => {
+  const requestedFrames: number[] = [];
+  let releaseContext!: () => void;
+  const contextGate = new Promise<void>((resolve) => { releaseContext = resolve; });
+  let contextRequestStarted!: () => void;
+  const contextStarted = new Promise<void>((resolve) => { contextRequestStarted = resolve; });
+  await installTrackedFixtureRoutes(page, requestedFrames, {
+    beforeContextResponse: async (frame) => {
+      if (frame === 2) {
+        contextRequestStarted();
+        await contextGate;
+      }
+    },
+  });
+  await openContinuousFocus(page);
+  await page.getByRole("radio", { name: "Context" }).check();
+  await expect(page.getByText("Loading context evidence")).toHaveCount(0);
+
+  const before = await reviewLayout(page);
+  await page.getByRole("button", { name: "Start playback" }).click();
+  await contextStarted;
+  await expect(page.getByLabel("Frame number")).toHaveValue("2");
+  await expect(page.getByText("Loading context evidence")).toBeVisible();
+  expectStableReviewLayout(before, await reviewLayout(page));
+  await assertUnrelatedFocusControlOperable(page);
+
+  releaseContext();
+  await expect(page.getByText("Loading context evidence")).toHaveCount(0);
+  expectStableReviewLayout(before, await reviewLayout(page));
+});
+
+test("delayed current image playback keeps the Focus review geometry fixed", async ({ page }) => {
+  const requestedFrames: number[] = [];
+  let releaseImage!: () => void;
+  const imageGate = new Promise<void>((resolve) => { releaseImage = resolve; });
+  await installTrackedFixtureRoutes(page, requestedFrames, {
+    beforeImageResponse: async (frame) => {
+      if (frame === 2) await imageGate;
+    },
+  });
+  await openContinuousFocus(page);
+
+  const before = await reviewLayout(page);
+  await page.getByRole("button", { name: "Start playback" }).click();
+  await expect(page.getByLabel("Frame number")).toHaveValue("2");
+  await expect(page.getByText("Loading exact frame 2")).toBeVisible();
+  expectStableReviewLayout(before, await reviewLayout(page));
+  await assertUnrelatedFocusControlOperable(page);
+  await page.getByRole("button", { name: "Pause playback" }).click();
+
+  releaseImage();
+  await expect(page.getByText("Loading exact frame 2")).toHaveCount(0);
+  expectStableReviewLayout(before, await reviewLayout(page));
+});
+
+test("failed current image playback keeps the Focus review geometry fixed and transport operable", async ({ page }) => {
+  const requestedFrames: number[] = [];
+  let releaseImage!: () => void;
+  const imageGate = new Promise<void>((resolve) => { releaseImage = resolve; });
+  await installTrackedFixtureRoutes(page, requestedFrames, {
+    beforeImageResponse: async (frame) => {
+      if (frame !== 2) return;
+      await imageGate;
+      return "error";
+    },
+  });
+  await openContinuousFocus(page);
+
+  const before = await reviewLayout(page);
+  await page.getByRole("button", { name: "Start playback" }).click();
+  await expect(page.getByLabel("Frame number")).toHaveValue("2");
+  await expect(page.getByText("Loading exact frame 2")).toBeVisible();
+  expectStableReviewLayout(before, await reviewLayout(page));
+  await assertUnrelatedFocusControlOperable(page);
+  await page.getByRole("button", { name: "Pause playback" }).click();
+
+  releaseImage();
+  await expect(page.getByRole("alert")).toContainText("Exact frame 2 could not be loaded.");
+  expectStableReviewLayout(before, await reviewLayout(page));
+  await assertUnrelatedFocusControlOperable(page);
+  await page.getByRole("button", { name: "Next frame" }).click();
+  await expect(page.getByLabel("Frame number")).toHaveValue("3");
+});
+
+test("delayed frame observations during playback keep the Focus review geometry fixed", async ({ page }) => {
+  const requestedFrames: number[] = [];
+  let releaseObservations!: () => void;
+  const observationGate = new Promise<void>((resolve) => { releaseObservations = resolve; });
+  await installTrackedFixtureRoutes(page, requestedFrames, {
+    beforeObservationResponse: async (frame) => {
+      if (frame === 2) await observationGate;
+    },
+  });
+  await openContinuousFocus(page);
+
+  const before = await reviewLayout(page);
+  await page.getByRole("button", { name: "Start playback" }).click();
+  await expect(page.getByLabel("Frame number")).toHaveValue("2");
+  await expect(page.getByText("Loading observations")).toBeVisible();
+  expectStableReviewLayout(before, await reviewLayout(page));
+  await assertUnrelatedFocusControlOperable(page);
+  await page.getByRole("button", { name: "Pause playback" }).click();
+
+  releaseObservations();
+  await expect(page.getByText("Loading observations")).toHaveCount(0);
+  expectStableReviewLayout(before, await reviewLayout(page));
+});
+
+test("failed frame observations keep the Focus review geometry fixed and transport operable", async ({ page }) => {
+  const requestedFrames: number[] = [];
+  let releaseObservations!: () => void;
+  const observationGate = new Promise<void>((resolve) => { releaseObservations = resolve; });
+  await installTrackedFixtureRoutes(page, requestedFrames, {
+    beforeObservationResponse: async (frame) => {
+      if (frame !== 2) return;
+      await observationGate;
+      return "error";
+    },
+  });
+  await openContinuousFocus(page);
+
+  const before = await reviewLayout(page);
+  await page.getByRole("button", { name: "Start playback" }).click();
+  await expect(page.getByLabel("Frame number")).toHaveValue("2");
+  await expect(page.getByText("Loading observations")).toBeVisible();
+  expectStableReviewLayout(before, await reviewLayout(page));
+  await assertUnrelatedFocusControlOperable(page);
+  await page.getByRole("button", { name: "Pause playback" }).click();
+
+  releaseObservations();
+  await expect(page.getByRole("alert")).toContainText("Frame observations could not be loaded.");
+  expectStableReviewLayout(before, await reviewLayout(page));
+  await assertUnrelatedFocusControlOperable(page);
+  await page.getByRole("button", { name: "Next frame" }).click();
+  await expect(page.getByLabel("Frame number")).toHaveValue("3");
+});
+
+test("failed Context playback keeps the Focus review geometry fixed", async ({ page }) => {
+  const requestedFrames: number[] = [];
+  let releaseContext!: () => void;
+  const contextGate = new Promise<void>((resolve) => { releaseContext = resolve; });
+  await installTrackedFixtureRoutes(page, requestedFrames, {
+    beforeContextResponse: async (frame) => {
+      if (frame !== 2) return;
+      await contextGate;
+      return "error";
+    },
+  });
+  await openContinuousFocus(page);
+  await page.getByRole("radio", { name: "Context" }).check();
+  await expect(page.getByText("Loading context evidence")).toHaveCount(0);
+
+  const before = await reviewLayout(page);
+  await page.getByRole("button", { name: "Start playback" }).click();
+  await expect(page.getByLabel("Frame number")).toHaveValue("2");
+  await expect(page.getByText("Loading context evidence")).toBeVisible();
+  expectStableReviewLayout(before, await reviewLayout(page));
+  await assertUnrelatedFocusControlOperable(page);
+  await page.getByRole("button", { name: "Pause playback" }).click();
+
+  releaseContext();
+  await expect(page.getByRole("alert")).toContainText("Context evidence could not be loaded.");
+  expectStableReviewLayout(before, await reviewLayout(page));
+  await assertUnrelatedFocusControlOperable(page);
 });
 
 test("tracked continuous candidate enters Focus with temporal crops and exact navigation", async ({ page }) => {
@@ -778,7 +1120,171 @@ test("tracked continuous candidate enters Focus with temporal crops and exact na
   expect(errors).toEqual([]);
 });
 
-test("reduced motion keeps the focal box and suppresses the trace", async ({ page }) => {
+test("Focus refreshes only delayed event data and keeps the newest settings", async ({ page }) => {
+  const requestedFrames: number[] = [];
+  let releaseSecondEvent!: () => void;
+  const secondEventGate = new Promise<void>((resolve) => { releaseSecondEvent = resolve; });
+  let signalSecondEvent!: () => void;
+  const secondEventStarted = new Promise<void>((resolve) => { signalSecondEvent = resolve; });
+  const eventQueries: URL[] = [];
+  let evidenceRequests = 0;
+  let filmstripRequests = 0;
+  page.on("request", (request) => {
+    const pathname = new URL(request.url()).pathname;
+    if (/\/tracks\/8$/.test(pathname)) evidenceRequests += 1;
+    if (/\/tracks\/8\/filmstrip$/.test(pathname)) filmstripRequests += 1;
+  });
+  await installTrackedFixtureRoutes(page, requestedFrames, {
+    beforeEventResponse: async (requestIndex, url) => {
+      eventQueries.push(url);
+      if (requestIndex === 3) {
+        signalSecondEvent();
+        await secondEventGate;
+      }
+    },
+  });
+  await page.goto("/");
+  await page.getByLabel("Source", { exact: true }).selectOption(continuousMetadata.source_key);
+  await page.getByLabel("Exact track ID").fill("8");
+  await page.getByRole("button", { name: "Find track" }).click();
+  const review = page.getByRole("region", { name: "Focus review for track 8" });
+  await expect(review).toBeVisible();
+  const initialEvidenceRequests = evidenceRequests;
+  const initialFilmstripRequests = filmstripRequests;
+  await page.getByRole("checkbox", { name: "Abrupt displacement" }).check();
+  await expect(page.getByLabel("Displacement activity controls")).toContainText("1 activity / 1 raw match");
+  const layoutBeforeEventRefresh = await reviewLayout(page);
+  const threshold = page.getByRole("spinbutton", { name: "Displacement threshold in box heights" });
+  await threshold.fill("");
+  await threshold.type("0.02");
+  await expect(threshold).toHaveValue("0.02");
+  await page.waitForTimeout(150);
+  expect(eventQueries.at(-1)?.searchParams.get("displacement_threshold")).not.toBe("0.02");
+  await secondEventStarted;
+  await expect(review).toBeVisible();
+  await expect(page.getByLabel("Track timeline")).toBeVisible();
+  await expect(page.getByLabel("Track filmstrip, 3 samples")).toBeVisible();
+  await expect(page.getByRole("status")).toContainText("Updating review events");
+  expectStableReviewLayout(layoutBeforeEventRefresh, await reviewLayout(page));
+  await page.getByRole("button", { name: "Next observation" }).click();
+  await expect(page.getByLabel("Frame number")).toHaveValue("2");
+  expectStableReviewLayout(layoutBeforeEventRefresh, await reviewLayout(page));
+
+  releaseSecondEvent();
+  await expect(page.locator(".event-status")).toHaveText("");
+  expectStableReviewLayout(layoutBeforeEventRefresh, await reviewLayout(page));
+
+  await page.getByRole("checkbox", { name: "Scale change" }).check();
+  await page.getByRole("checkbox", { name: "Close interaction" }).check();
+  await expect.poll(() => eventQueries.at(-1)?.searchParams.get("displacement_threshold")).toBe("0.02");
+  await expect(page.getByLabel("Track timeline")).toContainText("Scale change >= 0.5");
+  await expect(page.getByLabel("Track timeline")).toContainText("Close interaction <= 0.25");
+  expect(evidenceRequests).toBe(initialEvidenceRequests);
+  expect(filmstripRequests).toBe(initialFilmstripRequests);
+
+  await page.waitForTimeout(100);
+  await expect(page.getByLabel("Track timeline")).toContainText("Scale change >= 0.5");
+  await expect(page.getByRole("button", { name: "Next enabled event" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Next Displacement activity" })).toBeDisabled();
+});
+
+test("narrow failed event refresh keeps the timeline and filmstrip geometry fixed", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "narrow-chromium", "This regression targets narrow event-status wrapping.");
+  const requestedFrames: number[] = [];
+  await installTrackedFixtureRoutes(page, requestedFrames, {
+    beforeEventResponse: (requestIndex) => requestIndex === 2 ? "error" : undefined,
+  });
+  await openContinuousFocus(page);
+
+  const before = await reviewLayout(page);
+  await page.getByRole("checkbox", { name: "Abrupt displacement" }).check();
+  await expect(page.getByRole("status")).toContainText("Event refresh failed; showing the last successful settings.");
+  await expect(page.getByRole("button", { name: "Retry event refresh" })).toBeVisible();
+  expectStableReviewLayout(before, await reviewLayout(page));
+});
+
+test("Focus navigates deterministic family activities without combining raw event frames", async ({ page }) => {
+  const requestedFrames: number[] = [];
+  const errors = collectBrowserErrors(page);
+  await installTrackedFixtureRoutes(page, requestedFrames);
+  await page.goto("/");
+  await page.getByLabel("Source", { exact: true }).selectOption(activityMetadata.source_key);
+  await page.getByLabel("Exact track ID").fill("8");
+  await page.getByRole("button", { name: "Find track" }).click();
+  await expect(page.getByRole("region", { name: "Focus review for track 8" })).toBeVisible();
+
+  expect(RAW_NEXT_DISPLACEMENT_FRAME).toBe(2);
+  expect(GROUPED_NEXT_DISPLACEMENT_ANCHOR).toBe(5);
+  expect(RAW_NEXT_DISPLACEMENT_FRAME).not.toBe(GROUPED_NEXT_DISPLACEMENT_ANCHOR);
+  await expect(page.getByRole("button", { name: "Next Scale change activity" })).toBeDisabled();
+  await expect(page.getByLabel("Scale change activity controls")).toContainText("Scale change is off.");
+  await page.getByRole("checkbox", { name: "Scale change" }).check();
+  await expect(page.getByLabel("Scale change activity controls")).toContainText("1 activity / 1 raw match.");
+  await page.getByRole("button", { name: "Next Scale change activity" }).click();
+  await expect(page.getByLabel("Frame number")).toHaveValue("4");
+  await page.getByLabel("Frame number").fill("1");
+
+  await page.getByRole("checkbox", { name: "Abrupt displacement" }).check();
+  await expect(page.getByLabel("Displacement activity controls")).toContainText("2 activities / 3 raw matches");
+  await page.getByRole("button", { name: "Next Displacement activity" }).click();
+  await expect(page.getByLabel("Frame number")).toHaveValue(String(GROUPED_NEXT_DISPLACEMENT_ANCHOR));
+
+  await page.getByRole("checkbox", { name: "Close interaction" }).check();
+  await expect(page.getByLabel("Proximity activity controls")).toContainText("1 activity / 3 raw matches");
+  await page.getByLabel("Frame number").fill("4");
+  await page.getByRole("button", { name: "Previous Proximity activity" }).click();
+  await expect(page.getByLabel("Frame number")).toHaveValue("3");
+  await expect(page.getByLabel("Current event activities")).toContainText("Proximity with competitor 9");
+  await expect(page.getByRole("button", { name: "Next enabled event" })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("Focus exercises each event-family combination and keeps the complete history review stable", async ({ page }, testInfo) => {
+  const requestedFrames: number[] = [];
+  const errors = collectBrowserErrors(page);
+  const combinations = [
+    ["Abrupt displacement"],
+    ["Scale change"],
+    ["Close interaction"],
+    ["Abrupt displacement", "Scale change"],
+    ["Abrupt displacement", "Close interaction"],
+    ["Scale change", "Close interaction"],
+    ["Abrupt displacement", "Scale change", "Close interaction"],
+  ];
+  await installTrackedFixtureRoutes(page, requestedFrames);
+
+  for (const enabled of combinations) {
+    await page.goto("/");
+    await page.getByLabel("Source", { exact: true }).selectOption(activityMetadata.source_key);
+    await page.getByLabel("Exact track ID").fill("8");
+    await page.getByRole("button", { name: "Find track" }).click();
+    await expect(page.getByRole("region", { name: "Focus review for track 8" })).toBeVisible();
+    for (const label of enabled) await page.getByRole("checkbox", { name: label }).check();
+    for (const label of ["Abrupt displacement", "Scale change", "Close interaction"]) {
+      await expect(page.getByRole("checkbox", { name: label })).toHaveJSProperty("checked", enabled.includes(label));
+    }
+    for (const [label, controls] of [
+      ["Abrupt displacement", "Displacement activity controls"],
+      ["Scale change", "Scale change activity controls"],
+      ["Close interaction", "Proximity activity controls"],
+    ] as const) {
+      await expect(page.getByLabel(controls)).toContainText(enabled.includes(label) ? /\d+ activit/ : "is off.");
+    }
+  }
+
+  await page.getByRole("radio", { name: "Complete track (future dashed)" }).check();
+  await page.getByLabel("Frame number").fill("3");
+  await expect(page.locator('[data-layer="overlay"]')).toHaveAttribute("data-overlay-commands", "3");
+  await page.getByRole("slider", { name: "Sequence timeline, current frame 3" }).focus();
+  await page.keyboard.press("Home");
+  await expect(page.getByLabel("Frame number")).toHaveValue("1");
+  await page.keyboard.press("End");
+  await expect(page.getByLabel("Frame number")).toHaveValue("5");
+  await page.screenshot({ path: testInfo.outputPath(`focus-review-${testInfo.project.name}.png`), fullPage: true });
+  expect(errors).toEqual([]);
+});
+
+test("reduced motion keeps the static focal box and trajectory", async ({ page }) => {
   const requestedFrames: number[] = [];
   const errors = collectBrowserErrors(page);
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -790,8 +1296,37 @@ test("reduced motion keeps the focal box and suppresses the trace", async ({ pag
   await page.getByRole("button", { name: "Find track" }).click();
 
   await expect(page.getByRole("region", { name: "Focus review for track 8" })).toBeVisible();
-  await expect(page.locator('[data-layer="overlay"]')).toHaveAttribute("data-overlay-commands", "1");
+  await expect(page.locator('[data-layer="overlay"]')).toHaveAttribute("data-overlay-commands", "2");
   expect(await overlayAlphaSum(page)).toBeGreaterThan(0);
+  expect(errors).toEqual([]);
+});
+
+test("sequence-wide rail seeks one-based frames and complete trajectories retain gap breaks", async ({ page }) => {
+  const requestedFrames: number[] = [];
+  const errors = collectBrowserErrors(page);
+  await installTrackedFixtureRoutes(page, requestedFrames);
+  await page.goto("/");
+  await page.getByLabel("Source", { exact: true }).selectOption(gappedMetadata.source_key);
+  await page.getByLabel("Exact track ID").fill("8");
+  await page.getByRole("button", { name: "Find track" }).click();
+
+  const rail = page.locator(".track-timeline__rail");
+  await expect(rail).toHaveAttribute("aria-valuemin", "1");
+  await expect(rail).toHaveAttribute("aria-valuemax", String(gappedMetadata.frame_count));
+  await expect(page.locator(".track-timeline__run")).toHaveCount(3);
+  await expect(page.locator(".track-timeline__run--singleton")).toHaveCount(3);
+  await expect(rail).toHaveAccessibleDescription(/Observed runs: 1; 3; 5\. Missing ranges: 2-2; 4-4\./);
+  await page.getByRole("radio", { name: "Complete track (future dashed)" }).check();
+  await expect(page.locator('[data-layer="overlay"]')).toHaveAttribute("data-overlay-commands", "4");
+  await rail.scrollIntoViewIfNeeded();
+  const railBox = await rail.boundingBox();
+  if (railBox === null) throw new Error("Timeline rail was not visible for pointer seeking");
+  await page.mouse.click(railBox.x + railBox.width * 0.25, railBox.y + railBox.height / 2);
+  await expect(page.getByLabel("Frame number")).toHaveValue("2");
+  await rail.press("ArrowRight");
+  await expect(page.getByLabel("Frame number")).toHaveValue("3");
+  await rail.press("Shift+ArrowRight");
+  await expect(page.getByLabel("Frame number")).toHaveValue(String(gappedMetadata.frame_count));
   expect(errors).toEqual([]);
 });
 
@@ -833,7 +1368,7 @@ test("keyboard-only tracked review enables restrained Context without layout ove
   await page.getByRole("checkbox", { name: "Abrupt displacement" }).focus();
   await page.keyboard.press("Space");
   await expect(page.getByRole("checkbox", { name: "Abrupt displacement" })).toBeChecked();
-  await expect(page.getByRole("button", { name: "Enabled event at frame 2, seek frame 2" })).toBeVisible();
+  await expect(page.locator(".track-timeline__rail")).toHaveAccessibleDescription(/Displacement activity frames 1-2, anchor 2, severity 0.5, 1 raw match/);
 
   await assertNoHorizontalOverflow(page);
   const overflowingControls = await page.locator(".focus-review").evaluate((review) => {
@@ -866,12 +1401,12 @@ test("tracked gapped Focus shows exact evidence, no current box, and resets on s
   await page.getByRole("button", { name: "Next gap" }).click();
   await expect(page.getByLabel("Frame number")).toHaveValue("2");
   await expect(page.getByText("Gap at frame 2. Previous observation 1; next observation 3.")).toBeVisible();
-  await expect(page.locator('[data-layer="overlay"]')).toHaveAttribute("data-overlay-commands", "0");
-  expect(await overlayAlphaSum(page)).toBe(0);
+  await expect(page.locator('[data-layer="overlay"]')).toHaveAttribute("data-overlay-commands", "1");
+  expect(await overlayAlphaSum(page)).toBeGreaterThan(0);
   await assertNoHorizontalOverflow(page);
   await page.getByRole("button", { name: "Next observation" }).click();
   await expect(page.getByLabel("Frame number")).toHaveValue("3");
-  await page.getByRole("button", { name: "Gap 4-4, seek frame 4" }).click();
+  await page.getByRole("button", { name: "Next gap" }).click();
   await expect(page.getByLabel("Frame number")).toHaveValue("4");
   await page.getByLabel("Source", { exact: true }).selectOption(metadata.source_key);
   await expect(page.getByRole("region", { name: "Focus review for track 8" })).toHaveCount(0);

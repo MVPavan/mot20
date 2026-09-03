@@ -8,8 +8,9 @@ import { expect, test, type Page } from "@playwright/test";
 
 test.skip(process.env.MOT20_REAL_E2E !== "1", "Requires configured local MOT20 sources");
 
-const REPOSITORY_ROOT = fileURLToPath(new URL("../..", import.meta.url));
-const REPORT_ROOT = path.join(REPOSITORY_ROOT, "artifacts", "viewer", "verification");
+const TRACK_VIZ_ROOT = fileURLToPath(new URL("../..", import.meta.url));
+const WORKSPACE_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
+const REPORT_ROOT = path.join(TRACK_VIZ_ROOT, "artifacts", "verification");
 
 interface SourceMetadata {
   source_key: string;
@@ -175,14 +176,70 @@ test("real MOT20-01 Focus, timeline, filmstrip, Context, and export readback rem
     video_path: string;
     metadata_path: string;
   };
-  const video = await readFile(path.join(REPOSITORY_ROOT, exported.video_path));
-  const metadata = JSON.parse(await readFile(path.join(REPOSITORY_ROOT, exported.metadata_path), "utf8")) as {
+  const video = await readFile(path.join(WORKSPACE_ROOT, exported.video_path));
+  const metadata = JSON.parse(await readFile(path.join(WORKSPACE_ROOT, exported.metadata_path), "utf8")) as {
     export_id: string;
     output: { sha256: string };
   };
   expect(video.byteLength).toBeGreaterThan(0);
   expect(metadata.export_id).toBe(exported.export_id);
   expect(createHash("sha256").update(video).digest("hex")).toBe(metadata.output.sha256);
+  expect(errors).toEqual([]);
+});
+
+test("real MOT20-01 track 72 records raw displacement separately from its activity anchor", async ({ page }, testInfo) => {
+  const errors = browserErrors(page);
+  const source = await sourceMetadata(page, "mot20-01-gt");
+  await page.goto("/");
+  await page.getByLabel("Source", { exact: true }).selectOption(source.source_key);
+  await page.getByLabel("Frame number").fill("404");
+  await page.getByLabel("Exact track ID").fill("72");
+  await page.getByRole("button", { name: "Find track" }).click();
+  await expect(page.getByRole("region", { name: "Focus review for track 72" })).toBeVisible();
+
+  const responsePromise = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return url.pathname === `/api/sequences/${source.source_key}/tracks/72/events`
+      && url.searchParams.get("enable_displacement") === "true"
+      && url.searchParams.get("displacement_threshold") === "0.02";
+  });
+  const threshold = page.getByRole("spinbutton", { name: "Displacement threshold in box heights" });
+  await page.getByRole("checkbox", { name: "Abrupt displacement" }).check();
+  await expect(threshold).toBeEnabled();
+  await threshold.fill("0.02");
+  await threshold.press("Enter");
+  const response = await responsePromise;
+  expect(response.ok()).toBe(true);
+  const body = await response.json() as {
+    displacement_events: Array<{ to_frame: number }>;
+  };
+  const rawNextDisplacementFrame = body.displacement_events
+    .filter((event) => event.to_frame > 404)
+    .sort((left, right) => left.to_frame - right.to_frame)[0]?.to_frame ?? null;
+  const nextActivity = page.getByRole("button", { name: "Next Displacement activity" });
+  let groupedNextActivityAnchorFrame: number | null = null;
+  if (await nextActivity.isEnabled()) {
+    await nextActivity.click();
+    groupedNextActivityAnchorFrame = Number(await page.getByLabel("Frame number").inputValue());
+  }
+  const observation = {
+    sourceKey: source.source_key,
+    trackId: 72,
+    startFrame: 404,
+    displacementThreshold: 0.02,
+    rawNextDisplacementFrame,
+    groupedNextActivityAnchorFrame,
+    rawMatchCount: body.displacement_events.length,
+  };
+  await mkdir(REPORT_ROOT, { recursive: true });
+  await writeFile(
+    path.join(REPORT_ROOT, "mot20-01-track-72-focus-observation.json"),
+    `${JSON.stringify(observation, null, 2)}\n`,
+  );
+  await testInfo.attach("mot20-01-track-72-displacement-observation", {
+    body: JSON.stringify(observation, null, 2),
+    contentType: "application/json",
+  });
   expect(errors).toEqual([]);
 });
 
