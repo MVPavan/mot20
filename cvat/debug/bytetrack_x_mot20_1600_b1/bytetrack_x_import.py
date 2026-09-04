@@ -1,4 +1,4 @@
-"""Convert the supplied scoreless ByteTrack-X YOLO labels into CVAT shapes."""
+"""Convert supplied YOLO detection labels into CVAT shapes."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -39,10 +39,12 @@ def read_yolo_shapes(
             if not raw.strip():
                 continue
             columns = raw.split()
-            if len(columns) != 5 or columns[0] != "0":
+            if len(columns) not in (5, 6) or columns[0] != "0":
                 raise ValueError(f"unsupported YOLO row at {path}:{line_number}")
             try:
-                center_x, center_y, width, height = (float(value) for value in columns[1:])
+                center_x, center_y, width, height = (float(value) for value in columns[1:5])
+                if len(columns) == 6:
+                    float(columns[5])
             except ValueError as error:
                 raise ValueError(f"invalid YOLO geometry at {path}:{line_number}") from error
             if not 0 <= center_x <= 1 or not 0 <= center_y <= 1 or not 0 < width <= 1 or not 0 < height <= 1:

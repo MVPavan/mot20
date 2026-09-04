@@ -1,8 +1,8 @@
-# ByteTrack-X MOT20 CVAT debug project
+# Byte65 MOT20 CVAT review project
 
 ## Goal
 
-Create the isolated CVAT project `bytetrack_x_mot20_1600_b1` for the two
+Create the isolated CVAT project `byte65` for the two
 sequences actually supplied by the corresponding Deepak label bundle:
 `MOT20-06` and `MOT20-08`.
 
@@ -13,10 +13,12 @@ sequences actually supplied by the corresponding Deepak label bundle:
 - Task ingestion requests CVAT image quality `100`, so the annotation UI uses
   full-resolution, maximum-quality image chunks. CVAT also retains the
   byte-identical original JPEGs for these source files.
-- Input labels are the five-field, normalized YOLO files under
-  `datasets/MOT20_TEST_DET_DEEPAK/bytetrack_x_mot20_1600_b1/labels/`.
+- Input labels are normalized YOLO files under
+  `datasets/MOT20_TEST_DET_DEEPAK/byte65/labels/`.
 - Each input label becomes a task-local, zero-based CVAT rectangle with source
-  `semi-auto`. The labels have no confidence or track ID; neither is invented.
+  `semi-auto`. Class `0` is the single person label; optional detector
+  confidence is not imported because the project schema has no confidence
+  attribute, and neither a score nor a track ID is invented.
 - YOLO conversion retains the supplied geometry. It clamps only floating-point
   boundary overflow below `0.01` pixel (present in this bundle) to the image
   edge and rejects any material out-of-bounds box.

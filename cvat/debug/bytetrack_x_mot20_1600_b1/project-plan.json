@@ -1,90 +1,90 @@
 {
-  "project_name": "bytetrack_x_mot20_1600_b1",
+  "project_name": "byte65",
   "dataset_root": "datasets/MOT20/test",
-  "labels_root": "datasets/MOT20_TEST_DET_DEEPAK/bytetrack_x_mot20_1600_b1/labels",
+  "labels_root": "datasets/MOT20_TEST_DET_DEEPAK/byte65/labels",
   "assignments": [
     {
       "sequence": "MOT20-06",
       "start_frame": 1,
       "stop_frame": 100,
-      "task_name": "bytetrack_x_mot20_1600_b1__MOT20-06__frames-000001-000100",
+      "task_name": "byte65__MOT20-06__frames-000001-000100",
       "assignee": "calanit"
     },
     {
       "sequence": "MOT20-06",
       "start_frame": 101,
       "stop_frame": 302,
-      "task_name": "bytetrack_x_mot20_1600_b1__MOT20-06__frames-000101-000302",
+      "task_name": "byte65__MOT20-06__frames-000101-000302",
       "assignee": "tamar"
     },
     {
       "sequence": "MOT20-06",
       "start_frame": 303,
       "stop_frame": 402,
-      "task_name": "bytetrack_x_mot20_1600_b1__MOT20-06__frames-000303-000402",
+      "task_name": "byte65__MOT20-06__frames-000303-000402",
       "assignee": "haim"
     },
     {
       "sequence": "MOT20-06",
       "start_frame": 403,
       "stop_frame": 604,
-      "task_name": "bytetrack_x_mot20_1600_b1__MOT20-06__frames-000403-000604",
+      "task_name": "byte65__MOT20-06__frames-000403-000604",
       "assignee": "ran"
     },
     {
       "sequence": "MOT20-06",
       "start_frame": 605,
       "stop_frame": 704,
-      "task_name": "bytetrack_x_mot20_1600_b1__MOT20-06__frames-000605-000704",
+      "task_name": "byte65__MOT20-06__frames-000605-000704",
       "assignee": "tamir"
     },
     {
       "sequence": "MOT20-06",
       "start_frame": 705,
       "stop_frame": 906,
-      "task_name": "bytetrack_x_mot20_1600_b1__MOT20-06__frames-000705-000906",
+      "task_name": "byte65__MOT20-06__frames-000705-000906",
       "assignee": "yohai"
     },
     {
       "sequence": "MOT20-06",
       "start_frame": 907,
       "stop_frame": 1008,
-      "task_name": "bytetrack_x_mot20_1600_b1__MOT20-06__frames-000907-001008",
+      "task_name": "byte65__MOT20-06__frames-000907-001008",
       "assignee": "pavan"
     },
     {
       "sequence": "MOT20-08",
       "start_frame": 1,
       "stop_frame": 100,
-      "task_name": "bytetrack_x_mot20_1600_b1__MOT20-08__frames-000001-000100",
+      "task_name": "byte65__MOT20-08__frames-000001-000100",
       "assignee": "pavan"
     },
     {
       "sequence": "MOT20-08",
       "start_frame": 101,
       "stop_frame": 200,
-      "task_name": "bytetrack_x_mot20_1600_b1__MOT20-08__frames-000101-000200",
+      "task_name": "byte65__MOT20-08__frames-000101-000200",
       "assignee": "deepak"
     },
     {
       "sequence": "MOT20-08",
       "start_frame": 201,
       "stop_frame": 402,
-      "task_name": "bytetrack_x_mot20_1600_b1__MOT20-08__frames-000201-000402",
+      "task_name": "byte65__MOT20-08__frames-000201-000402",
       "assignee": "sree"
     },
     {
       "sequence": "MOT20-08",
       "start_frame": 403,
       "stop_frame": 604,
-      "task_name": "bytetrack_x_mot20_1600_b1__MOT20-08__frames-000403-000604",
+      "task_name": "byte65__MOT20-08__frames-000403-000604",
       "assignee": "sathish"
     },
     {
       "sequence": "MOT20-08",
       "start_frame": 605,
       "stop_frame": 806,
-      "task_name": "bytetrack_x_mot20_1600_b1__MOT20-08__frames-000605-000806",
+      "task_name": "byte65__MOT20-08__frames-000605-000806",
       "assignee": "raj"
     }
   ]
