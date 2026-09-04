@@ -140,8 +140,11 @@ Clicking the rail seeks its exact rounded one-based frame. With rail focus,
 Arrow keys seek one frame, Shift+Arrow seeks ten, and Home/End seek sequence
 bounds. The crop filmstrip remains the focused visual evidence.
 
-Trajectory defaults to past-through-current observations. Complete track adds
-future evidence with a distinct dashed treatment. Both modes break at missing
+Focus defaults to zero nearby tracks. Increasing **Number of nearby tracks**
+enables the same bounded Context ranking without a separate mode switch; setting
+it back to zero returns to focal-only review. Trajectory defaults to
+past-through-current observations. **Show future trajectory** adds future
+evidence with a distinct dashed treatment. Both modes break at missing
 observations: no line is inferred through a gap. Image, observation, Context,
 and event-refresh statuses occupy overlays or reserved status space, so they do
 not move the viewport, timeline, filmstrip, or lower controls.

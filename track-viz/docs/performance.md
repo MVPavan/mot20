@@ -1,6 +1,6 @@
 # Viewer Release Evidence
 
-Latest pointer/cache measurement: 2026-09-03 by `make e2e-real`. The
+Latest pointer/cache measurement: 2026-09-04 by `make e2e-real`. The
 machine-readable authority is
 `track-viz/artifacts/verification/browser-performance.json`; source manifests and
 their comparison are in the same ignored directory.
@@ -46,8 +46,14 @@ seek latency.
 
 | Measurement | p50 | p95 |
 | --- | ---: | ---: |
-| Cold seek to completed image draw | 24.4 ms | 38.6 ms |
-| Warm seek to completed image draw | 14.1 ms | 14.7 ms |
+| Cold seek to completed image draw | 26.0 ms | 35.6 ms |
+| Warm seek to completed image draw | 14.1 ms | 14.4 ms |
+
+Compared with the 2026-09-03 accepted evidence, pointer p50/p95 is unchanged,
+cold-seek p50 is 1.6 ms higher while p95 is 3.0 ms lower, and warm-seek p50 is
+unchanged while p95 is 0.3 ms lower. The visual/control foundation therefore
+stays within the prior interaction envelope; seek values remain observations,
+not pass thresholds.
 
 The 500-frame real scrub observed:
 
@@ -66,12 +72,13 @@ new pass thresholds.
 
 ## Browser And Accessibility
 
-Deterministic Playwright acceptance passed 18 desktop/narrow tests. The axe
+Deterministic Playwright acceptance passed 45 desktop/narrow tests with 13
+intentional real-data/project skips. The axe
 scan ran on Explore, pinned chooser, and Focus in both viewports: six scans,
 zero serious violations, and zero critical violations. No exceptions are
 recorded.
 
-Real production-server acceptance passed five tests with one intentional narrow
+Real production-server acceptance passed seven tests with one intentional narrow
 performance skip: MOT20-06 and MOT20-08 seek/hover/cycle/pin/confirm with Follow
 disabled, and MOT20-01 track 72 search/Focus/timeline/filmstrip/Context/export
 on desktop and narrow. Checks include nonblank canvas pixels, overlay hit

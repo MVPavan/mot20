@@ -647,7 +647,7 @@ async function openContinuousFocus(page: Page): Promise<void> {
 }
 
 async function assertUnrelatedFocusControlOperable(page: Page): Promise<void> {
-  const contextCount = page.getByRole("spinbutton", { name: "Context tracks" });
+  const contextCount = page.getByRole("spinbutton", { name: "Number of nearby tracks" });
   await contextCount.fill("3");
   await expect(contextCount).toHaveValue("3");
 }
@@ -663,6 +663,71 @@ async function assertNoSeriousAccessibilityViolations(page: Page, include?: stri
   );
   expect(violations).toEqual([]);
 }
+
+function cssRgb(value: string): [number, number, number] {
+  const channels = value.match(/[\d.]+/g)?.slice(0, 3).map(Number);
+  if (channels?.length !== 3) throw new Error(`Expected an RGB color, received ${value}`);
+  return channels as [number, number, number];
+}
+
+function relativeLuminance(color: [number, number, number]): number {
+  const [red, green, blue] = color.map((channel) => {
+    const normalized = channel / 255;
+    return normalized <= 0.04045
+      ? normalized / 12.92
+      : ((normalized + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
+}
+
+function contrastRatio(foreground: string, background: string): number {
+  const first = relativeLuminance(cssRgb(foreground));
+  const second = relativeLuminance(cssRgb(background));
+  const lighter = Math.max(first, second);
+  const darker = Math.min(first, second);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+test("uses a dark line-free visual foundation without shrinking the viewport", async ({ page }, testInfo) => {
+  const requestedFrames: number[] = [];
+  await installFixtureRoutes(page, requestedFrames);
+  await page.goto("/");
+  await page.getByLabel("Source", { exact: true }).selectOption(SOURCE_KEY);
+  await expect(page.getByTestId("frame-viewport")).toHaveAttribute("data-image-rect", /.+/);
+
+  const visual = await page.evaluate(() => {
+    const style = (selector: string) => getComputedStyle(document.querySelector<HTMLElement>(selector)!);
+    const body = getComputedStyle(document.body);
+    const control = style("button");
+    const panel = style(".track-search");
+    return {
+      colorScheme: getComputedStyle(document.documentElement).colorScheme,
+      bodyBackground: body.backgroundColor,
+      bodyBackgroundImage: body.backgroundImage,
+      bodyColor: body.color,
+      controlBackground: control.backgroundColor,
+      controlColor: control.color,
+      panelBackground: panel.backgroundColor,
+      panelColor: panel.color,
+    };
+  });
+
+  expect(visual.colorScheme).toContain("dark");
+  expect(visual.bodyBackgroundImage).toBe("none");
+  expect(relativeLuminance(cssRgb(visual.bodyBackground))).toBeLessThan(0.1);
+  expect(relativeLuminance(cssRgb(visual.panelBackground))).toBeLessThan(0.2);
+  expect(contrastRatio(visual.bodyColor, visual.bodyBackground)).toBeGreaterThanOrEqual(4.5);
+  expect(contrastRatio(visual.controlColor, visual.controlBackground)).toBeGreaterThanOrEqual(4.5);
+  expect(contrastRatio(visual.panelColor, visual.panelBackground)).toBeGreaterThanOrEqual(4.5);
+
+  const viewport = await page.getByTestId("frame-viewport").boundingBox();
+  expect(viewport).not.toBeNull();
+  expect(viewport!.width).toBeGreaterThanOrEqual(testInfo.project.name === "narrow-chromium" ? 300 : 900);
+  expect(viewport!.height).toBeGreaterThanOrEqual(260);
+  await assertNoHorizontalOverflow(page);
+  await assertCanvasGeometryAndPixels(page);
+  await assertNoSeriousAccessibilityViolations(page);
+});
 
 test("loads image and annotation paths suggested by the server", async ({ page }) => {
   const requestedFrames: number[] = [];
@@ -711,8 +776,8 @@ test("selects a source and renders exact first, middle, and last JPEGs", async (
 
   await page.goto("/");
   await page.getByLabel("Source", { exact: true }).selectOption(SOURCE_KEY);
-  await expect(page.getByText(/local test-adapted development material/i)).toBeVisible();
-  await expect(page.getByText(/not a held-out benchmark result/i)).toBeVisible();
+  await expect(page.getByText(/local test-adapted development material/i)).toHaveCount(0);
+  await expect(page.getByText(/not a held-out benchmark result/i)).toHaveCount(0);
 
   for (const frame of [1, 3, 5]) {
     await page.getByLabel("Frame number").fill(String(frame));
@@ -897,13 +962,15 @@ test("Explore, pinned chooser, and Focus have no serious or critical accessibili
   await page.getByRole("button", { name: "Find track" }).click();
   await expect(page.getByRole("region", { name: "Focus review for track 8" })).toBeVisible();
   await assertNoSeriousAccessibilityViolations(page);
+  const trajectoryToggle = page.getByRole("checkbox", { name: "Show future trajectory" }).locator("..");
+  expect((await trajectoryToggle.boundingBox())?.height).toBeLessThanOrEqual(40);
   for (const target of [
     ".track-timeline__rail",
     '[aria-label="Displacement activity controls"]',
     '[aria-label="Scale change activity controls"]',
     '[aria-label="Proximity activity controls"]',
     '[aria-label="Low-confidence observation controls"]',
-    ".trajectory-control",
+    ".trajectory-toggle",
   ]) await assertNoSeriousAccessibilityViolations(page, target);
 
   await page.getByLabel("Source", { exact: true }).selectOption(activityMetadata.source_key);
@@ -920,7 +987,7 @@ test("Explore, pinned chooser, and Focus have no serious or critical accessibili
     '[aria-label="Scale change activity controls"]',
     '[aria-label="Proximity activity controls"]',
     '[aria-label="Low-confidence observation controls"]',
-    ".trajectory-control",
+    ".trajectory-toggle",
   ]) await assertNoSeriousAccessibilityViolations(page, target);
   expect(errors).toEqual([]);
 });
@@ -940,7 +1007,7 @@ test("delayed Context playback keeps the Focus review geometry fixed", async ({ 
     },
   });
   await openContinuousFocus(page);
-  await page.getByRole("radio", { name: "Context" }).check();
+  await page.getByRole("spinbutton", { name: "Number of nearby tracks" }).fill("3");
   await expect(page.getByText("Loading context evidence")).toHaveCount(0);
 
   const before = await reviewLayout(page);
@@ -1074,7 +1141,7 @@ test("failed Context playback keeps the Focus review geometry fixed", async ({ p
     },
   });
   await openContinuousFocus(page);
-  await page.getByRole("radio", { name: "Context" }).check();
+  await page.getByRole("spinbutton", { name: "Number of nearby tracks" }).fill("3");
   await expect(page.getByText("Loading context evidence")).toHaveCount(0);
 
   const before = await reviewLayout(page);
@@ -1272,7 +1339,7 @@ test("Focus exercises each event-family combination and keeps the complete histo
     }
   }
 
-  await page.getByRole("radio", { name: "Complete track (future dashed)" }).check();
+  await page.getByRole("checkbox", { name: "Show future trajectory" }).check();
   await page.getByLabel("Frame number").fill("3");
   await expect(page.locator('[data-layer="overlay"]')).toHaveAttribute("data-overlay-commands", "3");
   await page.getByRole("slider", { name: "Sequence timeline, current frame 3" }).focus();
@@ -1316,7 +1383,7 @@ test("sequence-wide rail seeks one-based frames and complete trajectories retain
   await expect(page.locator(".track-timeline__run")).toHaveCount(3);
   await expect(page.locator(".track-timeline__run--singleton")).toHaveCount(3);
   await expect(rail).toHaveAccessibleDescription(/Observed runs: 1; 3; 5\. Missing ranges: 2-2; 4-4\./);
-  await page.getByRole("radio", { name: "Complete track (future dashed)" }).check();
+  await page.getByRole("checkbox", { name: "Show future trajectory" }).check();
   await expect(page.locator('[data-layer="overlay"]')).toHaveAttribute("data-overlay-commands", "4");
   await rail.scrollIntoViewIfNeeded();
   const railBox = await rail.boundingBox();
@@ -1344,9 +1411,11 @@ test("keyboard-only tracked review enables restrained Context without layout ove
   await page.keyboard.press("Enter");
   await expect(page.getByRole("region", { name: "Focus review for track 8" })).toBeVisible();
 
-  await page.getByRole("radio", { name: "Focus" }).focus();
-  await page.keyboard.press("ArrowRight");
-  await expect(page.getByRole("radio", { name: "Context" })).toBeChecked();
+  const count = page.getByRole("spinbutton", { name: "Number of nearby tracks" });
+  await expect(count).toHaveValue("0");
+  await count.focus();
+  await page.keyboard.press("Control+A");
+  await page.keyboard.type("3");
   const overlay = page.locator('[data-layer="overlay"]');
   await expect(overlay).toHaveAttribute("data-context-commands", "3");
   const drawPlan = await overlay.evaluate((canvas) => ({
@@ -1360,7 +1429,6 @@ test("keyboard-only tracked review enables restrained Context without layout ove
   expect(drawPlan.labelIntersections).toBe(0);
   expect(drawPlan.focalStroke).toBeGreaterThan(drawPlan.contextStroke);
 
-  const count = page.getByRole("spinbutton", { name: "Context tracks" });
   await count.focus();
   await page.keyboard.press("Control+A");
   await page.keyboard.type("1");
@@ -1484,12 +1552,9 @@ test("real dense MOT20-01 Context remains subordinate at three and one competito
   await page.getByLabel("Exact track ID").fill("1");
   await page.getByRole("button", { name: "Find track" }).click();
   await expect(page.getByRole("region", { name: "Focus review for track 1" })).toBeVisible();
-  await page.getByRole("radio", { name: "Context" }).check();
-
   const overlay = page.locator('[data-layer="overlay"]');
-  await expect(overlay).toHaveAttribute("data-context-commands", "3");
   for (const count of [3, 1]) {
-    await page.getByRole("spinbutton", { name: "Context tracks" }).fill(String(count));
+    await page.getByRole("spinbutton", { name: "Number of nearby tracks" }).fill(String(count));
     await expect(overlay).toHaveAttribute("data-context-commands", String(count));
     const plan = await overlay.evaluate((canvas) => ({
       contextInk: Number(canvas.getAttribute("data-context-ink-area")),

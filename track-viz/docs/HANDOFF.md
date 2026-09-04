@@ -81,14 +81,17 @@ under `track-viz/web/e2e/`. Configuration is in
 - Focus threshold edits stay local for 300 ms and commit immediately on Enter or
   blur. Event refreshes retain the last successful event evidence and leave the
   timeline, filmstrip, and review controls mounted.
+- Focus defaults to zero nearby tracks. A positive **Number of nearby tracks**
+  value enables bounded Context; returning it to zero restores focal-only review.
 - Event-family navigation uses UI-derived contiguous activities while preserving
   backend raw matches. Low-confidence observations have separate exact-frame
   navigation and must not be folded into family activities.
 - The range-style timeline is sequence-wide and one-based; pointer rounding,
   Arrow/Shift+Arrow/Home/End seeking, observed runs, gaps, and the playhead must
   keep their exact source-frame semantics.
-- Past trajectory never includes future observations. Complete trajectory makes
-  future evidence distinct; both modes break at every missing-observation gap.
+- Past trajectory never includes future observations. **Show future trajectory**
+  makes future evidence distinct; both states break at every missing-observation
+  gap.
 - Source-changing and export requests enforce trusted-host and same-origin rules.
 - Dataset, annotation, cache, and export paths must not escape their allowed roots.
 
@@ -105,10 +108,11 @@ For a new coding session, read in this order:
 From the repository root, use `make run`, `make test`, and `make acceptance`.
 The focused commands and release evidence requirements are maintained in
 `.claude/project/verification.md`. The full acceptance gate last passed on
-2026-09-03 after consolidation under `track-viz/`.
+2026-09-04 for the dark visual and simplified-control foundation.
 
 For Focus review, start with the deterministic gapped/activity fixture in
 `web/e2e/tracer.spec.ts`; use `web/e2e/real.spec.ts` track 72 only for a
-read-only usability observation. Screenshot evidence is ignored under
-`artifacts/verification/focus-review/`, while the canonical performance report
-and before/after source manifests are under `artifacts/verification/`.
+read-only usability observation. Current visual-acceptance screenshots are
+ignored under `artifacts/verification/visual-control-foundation/`, while the
+canonical performance report and before/after source manifests are under
+`artifacts/verification/`.

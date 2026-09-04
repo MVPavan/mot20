@@ -1,0 +1,7 @@
+interface:
+  display_name: "Codex Session Recovery"
+  short_description: "Choose an old Codex session and recover context"
+  default_prompt: "Use $codex-session-recovery to show recent sessions and let me choose one to restore."
+
+policy:
+  allow_implicit_invocation: false

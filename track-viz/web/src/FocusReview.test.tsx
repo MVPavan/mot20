@@ -89,7 +89,7 @@ const eventProps = {
 
 describe("FocusReview", () => {
   it("reports a failed track-evidence request even when no evidence was retained", () => {
-    render(<FocusReview {...eventProps} contextCount={3} evidence={null} events={null} filmstrip={null} focusStatus="error" focusTarget={{ trackId: 8, confirmedRowIndex: 3 }} frame={3} mode="focus" onContextCountChange={vi.fn()} onEventSettingsChange={vi.fn()} onExit={vi.fn()} onModeChange={vi.fn()} onSeek={vi.fn()} source={source} />);
+    render(<FocusReview {...eventProps} contextCount={3} evidence={null} events={null} filmstrip={null} focusStatus="error" focusTarget={{ trackId: 8, confirmedRowIndex: 3 }} frame={3} onContextCountChange={vi.fn()} onEventSettingsChange={vi.fn()} onExit={vi.fn()} onSeek={vi.fn()} source={source} />);
 
     expect(screen.getByRole("alert")).toHaveTextContent("Track evidence could not be loaded.");
     expect(screen.queryByText("Loading track evidence")).not.toBeInTheDocument();
@@ -97,7 +97,7 @@ describe("FocusReview", () => {
 
   it("shows exact previous/next evidence at a gap and seeks the sequence-wide timeline exactly", async () => {
     const onSeek = vi.fn();
-    const { container } = render(<FocusReview {...eventProps} contextCount={3} evidence={evidence} events={events} filmstrip={filmstrip} focusStatus="ready" focusTarget={{ trackId: 8, confirmedRowIndex: 3 }} frame={4} mode="focus" onContextCountChange={vi.fn()} onEventSettingsChange={vi.fn()} onExit={vi.fn()} onModeChange={vi.fn()} onSeek={onSeek} source={source} />);
+    const { container } = render(<FocusReview {...eventProps} contextCount={3} evidence={evidence} events={events} filmstrip={filmstrip} focusStatus="ready" focusTarget={{ trackId: 8, confirmedRowIndex: 3 }} frame={4} onContextCountChange={vi.fn()} onEventSettingsChange={vi.fn()} onExit={vi.fn()} onSeek={onSeek} source={source} />);
 
     expect(screen.getByText("Gap at frame 4. Previous observation 3; next observation 6.")).toBeVisible();
     expect(screen.getByLabelText("Track timeline")).toHaveTextContent("Low confidence unavailable: absent.");
@@ -131,7 +131,7 @@ describe("FocusReview", () => {
       scale_change_events: [{ from_frame: 2, to_frame: 3, from_row_index: 2, to_row_index: 3, frame_delta: 1, absolute_height_change_pixels: 3, normalization_box_height: 4, normalized_scale_change: 0.75, threshold: 0.75 }],
       low_confidence_observations: [observations[2]],
     } satisfies TimelineEventsResponse;
-    const { container } = render(<FocusReview {...eventProps} eventSettings={meaningfulEvents.settings} contextCount={3} evidence={evidence} events={meaningfulEvents} filmstrip={filmstrip} focusStatus="ready" focusTarget={{ trackId: 8, confirmedRowIndex: 3 }} frame={4} mode="focus" onContextCountChange={vi.fn()} onEventSettingsChange={vi.fn()} onExit={vi.fn()} onModeChange={vi.fn()} onSeek={onSeek} source={source} />);
+    const { container } = render(<FocusReview {...eventProps} eventSettings={meaningfulEvents.settings} contextCount={3} evidence={evidence} events={meaningfulEvents} filmstrip={filmstrip} focusStatus="ready" focusTarget={{ trackId: 8, confirmedRowIndex: 3 }} frame={4} onContextCountChange={vi.fn()} onEventSettingsChange={vi.fn()} onExit={vi.fn()} onSeek={onSeek} source={source} />);
 
     expect(container.querySelectorAll(".track-timeline__endpoint")).toHaveLength(2);
     expect(container.querySelector(".track-timeline__glyph--activity")).toBeVisible();
@@ -170,7 +170,7 @@ describe("FocusReview", () => {
       ],
       low_confidence_observations: [observations[0], observations[2]],
     } satisfies TimelineEventsResponse;
-    render(<FocusReview {...eventProps} eventSettings={groupedEvents.settings} contextCount={3} evidence={evidence} events={groupedEvents} filmstrip={filmstrip} focusStatus="ready" focusTarget={{ trackId: 8, confirmedRowIndex: 3 }} frame={2} mode="focus" onContextCountChange={vi.fn()} onEventSettingsChange={vi.fn()} onExit={vi.fn()} onModeChange={vi.fn()} onSeek={onSeek} source={source} />);
+    render(<FocusReview {...eventProps} eventSettings={groupedEvents.settings} contextCount={3} evidence={evidence} events={groupedEvents} filmstrip={filmstrip} focusStatus="ready" focusTarget={{ trackId: 8, confirmedRowIndex: 3 }} frame={2} onContextCountChange={vi.fn()} onEventSettingsChange={vi.fn()} onExit={vi.fn()} onSeek={onSeek} source={source} />);
 
     expect(screen.getByLabelText("Displacement activity controls")).toHaveTextContent("2 activities / 3 raw matches");
     expect(screen.getByLabelText("Proximity activity controls")).toHaveTextContent("1 activity / 3 raw matches");
@@ -198,7 +198,7 @@ describe("FocusReview", () => {
       ...events,
       settings: { ...events.settings, scale_change_enabled: true },
     } satisfies TimelineEventsResponse;
-    render(<FocusReview {...eventProps} eventSettings={noScaleMatch.settings} contextCount={3} evidence={evidence} events={noScaleMatch} filmstrip={filmstrip} focusStatus="ready" focusTarget={{ trackId: 8, confirmedRowIndex: 3 }} frame={3} mode="focus" onContextCountChange={vi.fn()} onEventSettingsChange={vi.fn()} onExit={vi.fn()} onModeChange={vi.fn()} onSeek={onSeek} source={source} />);
+    render(<FocusReview {...eventProps} eventSettings={noScaleMatch.settings} contextCount={3} evidence={evidence} events={noScaleMatch} filmstrip={filmstrip} focusStatus="ready" focusTarget={{ trackId: 8, confirmedRowIndex: 3 }} frame={3} onContextCountChange={vi.fn()} onEventSettingsChange={vi.fn()} onExit={vi.fn()} onSeek={onSeek} source={source} />);
 
     const previous = screen.getByRole("button", { name: "Previous Scale change activity" });
     const next = screen.getByRole("button", { name: "Next Scale change activity" });
@@ -210,24 +210,23 @@ describe("FocusReview", () => {
     expect(next).toHaveAccessibleDescription("No matching scale change activity.");
   });
 
-  it("exposes bounded context and opt-in event controls with visible thresholds", async () => {
-    const onModeChange = vi.fn();
+  it("uses nearby-track count and a compact future-trajectory toggle", async () => {
     const onContextCountChange = vi.fn();
     const onEventSettingsChange = vi.fn();
     const onTrajectoryModeChange = vi.fn();
-    render(<FocusReview {...eventProps} contextCount={3} evidence={evidence} events={events} filmstrip={filmstrip} focusStatus="ready" focusTarget={{ trackId: 8, confirmedRowIndex: 3 }} frame={3} mode="focus" onContextCountChange={onContextCountChange} onEventSettingsChange={onEventSettingsChange} onExit={vi.fn()} onModeChange={onModeChange} onSeek={vi.fn()} onTrajectoryModeChange={onTrajectoryModeChange} source={source} />);
+    render(<FocusReview {...eventProps} contextCount={0} evidence={evidence} events={events} filmstrip={filmstrip} focusStatus="ready" focusTarget={{ trackId: 8, confirmedRowIndex: 3 }} frame={3} onContextCountChange={onContextCountChange} onEventSettingsChange={onEventSettingsChange} onExit={vi.fn()} onSeek={vi.fn()} onTrajectoryModeChange={onTrajectoryModeChange} source={source} />);
 
-    expect(screen.getByRole("radio", { name: "Focus" })).toBeChecked();
-    await userEvent.click(screen.getByRole("radio", { name: "Context" }));
-    expect(onModeChange).toHaveBeenCalledWith("context");
-    expect(screen.getByRole("radio", { name: "Past through current" })).toBeChecked();
-    await userEvent.click(screen.getByRole("radio", { name: "Complete track (future dashed)" }));
+    expect(screen.queryByRole("radio", { name: "Focus" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio", { name: "Context" })).not.toBeInTheDocument();
+    const futureTrajectory = screen.getByRole("checkbox", { name: "Show future trajectory" });
+    expect(futureTrajectory).not.toBeChecked();
+    await userEvent.click(futureTrajectory);
     expect(onTrajectoryModeChange).toHaveBeenCalledWith("complete");
 
-    const count = screen.getByRole("spinbutton", { name: "Context tracks" });
+    const count = screen.getByRole("spinbutton", { name: "Number of nearby tracks" });
     expect(count).toHaveAttribute("min", "0");
     expect(count).toHaveAttribute("max", "8");
-    expect(count).toHaveValue(3);
+    expect(count).toHaveValue(0);
     await userEvent.clear(count);
     await userEvent.type(count, "9");
     expect(onContextCountChange).toHaveBeenLastCalledWith(8);
@@ -252,7 +251,7 @@ describe("FocusReview", () => {
       settings: { ...events.settings, displacement_enabled: true },
     } satisfies TimelineEventsResponse;
     const user = userEvent.setup();
-    render(<FocusReview {...eventProps} eventSettings={enabledEvents.settings} contextCount={3} evidence={evidence} events={enabledEvents} filmstrip={filmstrip} focusStatus="ready" focusTarget={{ trackId: 8, confirmedRowIndex: 3 }} frame={3} mode="focus" onContextCountChange={vi.fn()} onEventSettingsChange={onEventSettingsChange} onExit={vi.fn()} onModeChange={vi.fn()} onSeek={vi.fn()} source={source} />);
+    render(<FocusReview {...eventProps} eventSettings={enabledEvents.settings} contextCount={3} evidence={evidence} events={enabledEvents} filmstrip={filmstrip} focusStatus="ready" focusTarget={{ trackId: 8, confirmedRowIndex: 3 }} frame={3} onContextCountChange={vi.fn()} onEventSettingsChange={onEventSettingsChange} onExit={vi.fn()} onSeek={vi.fn()} source={source} />);
 
     const threshold = screen.getByRole("spinbutton", { name: "Displacement threshold in box heights" });
     await user.clear(threshold);
@@ -275,7 +274,7 @@ describe("FocusReview", () => {
       settings: { ...events.settings, displacement_enabled: true },
     } satisfies TimelineEventsResponse;
     const user = userEvent.setup();
-    render(<FocusReview {...eventProps} eventSettings={enabledEvents.settings} contextCount={3} evidence={evidence} events={enabledEvents} filmstrip={filmstrip} focusStatus="ready" focusTarget={{ trackId: 8, confirmedRowIndex: 3 }} frame={3} mode="focus" onContextCountChange={vi.fn()} onEventSettingsChange={onEventSettingsChange} onExit={vi.fn()} onModeChange={vi.fn()} onSeek={vi.fn()} source={source} />);
+    render(<FocusReview {...eventProps} eventSettings={enabledEvents.settings} contextCount={3} evidence={evidence} events={enabledEvents} filmstrip={filmstrip} focusStatus="ready" focusTarget={{ trackId: 8, confirmedRowIndex: 3 }} frame={3} onContextCountChange={vi.fn()} onEventSettingsChange={onEventSettingsChange} onExit={vi.fn()} onSeek={vi.fn()} source={source} />);
 
     const threshold = screen.getByRole("spinbutton", { name: "Displacement threshold in box heights" });
     await user.clear(threshold);
@@ -288,7 +287,7 @@ describe("FocusReview", () => {
 
   it("retains review evidence while event data updates and exposes refresh failures in its status slot", async () => {
     const onRetryEvents = vi.fn();
-    const props = { ...eventProps, contextCount: 3, evidence, events, filmstrip, focusStatus: "ready" as const, focusTarget: { trackId: 8, confirmedRowIndex: 3 }, frame: 3, mode: "focus" as const, onContextCountChange: vi.fn(), onEventSettingsChange: vi.fn(), onExit: vi.fn(), onModeChange: vi.fn(), onSeek: vi.fn(), source };
+    const props = { ...eventProps, contextCount: 3, evidence, events, filmstrip, focusStatus: "ready" as const, focusTarget: { trackId: 8, confirmedRowIndex: 3 }, frame: 3, onContextCountChange: vi.fn(), onEventSettingsChange: vi.fn(), onExit: vi.fn(), onSeek: vi.fn(), source };
     const { rerender } = render(<FocusReview {...props} eventStatus="updating" onRetryEvents={onRetryEvents} />);
 
     expect(screen.getByRole("heading", { name: "Track 8" })).toBeVisible();
@@ -306,7 +305,7 @@ describe("FocusReview", () => {
       ...events,
       settings: { ...events.settings, displacement_enabled: true },
     } satisfies TimelineEventsResponse;
-    render(<FocusReview {...eventProps} eventSettings={enabledEvents.settings} contextCount={3} evidence={evidence} events={enabledEvents} filmstrip={filmstrip} focusStatus="ready" focusTarget={{ trackId: 8, confirmedRowIndex: 3 }} frame={3} mode="focus" onContextCountChange={vi.fn()} onEventSettingsChange={onEventSettingsChange} onExit={vi.fn()} onModeChange={vi.fn()} onSeek={vi.fn()} source={source} />);
+    render(<FocusReview {...eventProps} eventSettings={enabledEvents.settings} contextCount={3} evidence={evidence} events={enabledEvents} filmstrip={filmstrip} focusStatus="ready" focusTarget={{ trackId: 8, confirmedRowIndex: 3 }} frame={3} onContextCountChange={vi.fn()} onEventSettingsChange={onEventSettingsChange} onExit={vi.fn()} onSeek={vi.fn()} source={source} />);
 
     const threshold = screen.getByRole("spinbutton", { name: "Displacement threshold in box heights" });
     await userEvent.clear(threshold);
@@ -319,7 +318,7 @@ describe("FocusReview", () => {
 
   it("uses functional settings updates so rapid checkbox changes retain every family", async () => {
     const onEventSettingsChange = vi.fn();
-    render(<FocusReview {...eventProps} contextCount={3} evidence={evidence} events={events} filmstrip={filmstrip} focusStatus="ready" focusTarget={{ trackId: 8, confirmedRowIndex: 3 }} frame={3} mode="focus" onContextCountChange={vi.fn()} onEventSettingsChange={onEventSettingsChange} onExit={vi.fn()} onModeChange={vi.fn()} onSeek={vi.fn()} source={source} />);
+    render(<FocusReview {...eventProps} contextCount={3} evidence={evidence} events={events} filmstrip={filmstrip} focusStatus="ready" focusTarget={{ trackId: 8, confirmedRowIndex: 3 }} frame={3} onContextCountChange={vi.fn()} onEventSettingsChange={onEventSettingsChange} onExit={vi.fn()} onSeek={vi.fn()} source={source} />);
 
     await userEvent.click(screen.getByRole("checkbox", { name: "Abrupt displacement" }));
     await userEvent.click(screen.getByRole("checkbox", { name: "Scale change" }));

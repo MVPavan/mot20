@@ -200,15 +200,15 @@ describe("App", () => {
     expect(screen.getByLabelText("Frame number")).toHaveValue(1);
   });
 
-  it("selects a source and seeks exact one-based frames with persistent source status", async () => {
+  it("selects a source and seeks exact one-based frames with compact persistent source status", async () => {
     const user = userEvent.setup();
     render(<App />);
 
     await user.selectOptions(await screen.findByLabelText("Source"), TEST_SOURCE.source_key);
 
     expect(screen.getByLabelText("Frame number")).toHaveValue(1);
-    expect(screen.getByText(/local test-adapted development material/i)).toBeVisible();
-    expect(screen.getByText(/not a held-out benchmark result/i)).toBeVisible();
+    expect(screen.queryByText(/local test-adapted development material/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/not a held-out benchmark result/i)).not.toBeInTheDocument();
     expect(screen.getByText(TEST_SOURCE.source_hash)).toBeVisible();
     expect(screen.getByText("Track tools unavailable")).toBeVisible();
     expect(screen.getByText("joco_v1")).toBeVisible();

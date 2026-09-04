@@ -154,7 +154,7 @@ test("real MOT20-01 Focus, timeline, filmstrip, Context, and export readback rem
   await expect(page.getByLabel("Track timeline")).toBeVisible();
   await expect(page.getByLabel(/Track filmstrip/)).toBeVisible();
   await expect(page.getByText(/Observed on exact frame 404/)).toBeVisible();
-  await page.getByRole("radio", { name: "Context" }).check();
+  await page.getByRole("spinbutton", { name: "Number of nearby tracks" }).fill("3");
   await expect(page.locator('[data-layer="overlay"]')).toHaveAttribute("data-context-commands", "3");
   await expectRenderedFrame(page);
   await page.screenshot({ path: testInfo.outputPath("mot20-01-focus-context.png"), fullPage: true });

@@ -24,8 +24,6 @@ import { SourceSetup } from "./SourceSetup";
 import { TrackSearch } from "./TrackSearch";
 import { stabilizeContextCompetitors } from "./contextOverlayPlan";
 
-const TEST_POLICY_TEXT =
-  "This source is local test-adapted development material and is not a held-out benchmark result.";
 const PREFETCH_BATCH_SIZE = 12;
 const DEFAULT_EVENT_SETTINGS: EventSettings = {
   displacement_enabled: false,
@@ -186,9 +184,8 @@ function Viewer({ source, frameDraft, setFrameDraft }: ViewerProps) {
   const [filmstrip, setFilmstrip] = useState<FilmstripResponse | null>(null);
   const [timelineEvents, setTimelineEvents] = useState<TimelineEventsResponse | null>(null);
   const [focusStatus, setFocusStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
-  const [reviewMode, setReviewMode] = useState<"focus" | "context">("focus");
   const [trajectoryMode, setTrajectoryMode] = useState<"past" | "complete">("past");
-  const [contextCount, setContextCount] = useState(3);
+  const [contextCount, setContextCount] = useState(0);
   const [contextCompetitors, setContextCompetitors] = useState<ContextCompetitor[]>([]);
   const [contextStatus, setContextStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [eventSettings, setEventSettings] = useState<EventSettings>(DEFAULT_EVENT_SETTINGS);
@@ -199,6 +196,7 @@ function Viewer({ source, frameDraft, setFrameDraft }: ViewerProps) {
   const eventRequestIdRef = useRef(0);
   const skipEventSettingsRequestRef = useRef(false);
   const lastSuccessfulEventSettingsRef = useRef<EventSettings>(DEFAULT_EVENT_SETTINGS);
+  const reviewMode = contextCount > 0 ? "context" : "focus";
   const missingProvenance = Object.entries(source.provenance)
     .filter(([, value]) => value === null)
     .map(([field]) => field.replaceAll("_", " "));
@@ -317,7 +315,7 @@ function Viewer({ source, frameDraft, setFrameDraft }: ViewerProps) {
   }, [eventRetry, eventSettings, focusTarget, source]);
 
   useEffect(() => {
-    if (focusTarget === null || reviewMode !== "context" || !frameIsValid) {
+    if (focusTarget === null || contextCount === 0 || !frameIsValid) {
       setContextCompetitors([]);
       setContextStatus("idle");
       return;
@@ -355,7 +353,7 @@ function Viewer({ source, frameDraft, setFrameDraft }: ViewerProps) {
       active = false;
       controller.abort();
     };
-  }, [contextCount, focusTarget, frame, frameIsValid, reviewMode, source]);
+  }, [contextCount, focusTarget, frame, frameIsValid, source]);
 
   useEffect(() => {
     if (!frameIsValid) {
@@ -452,12 +450,6 @@ function Viewer({ source, frameDraft, setFrameDraft }: ViewerProps) {
       aria-label={`${source.sequence} exact frame viewer`}
       onKeyDown={handleWorkspaceKey}
     >
-      {source.policy_classification === "local_test_adapted_development_material" && (
-        <p className="policy-banner" role="note">
-          {TEST_POLICY_TEXT}
-        </p>
-      )}
-
       <div className="transport-band">
         <div>
           <p className="sequence-name">{source.sequence}</p>
@@ -568,11 +560,9 @@ function Viewer({ source, frameDraft, setFrameDraft }: ViewerProps) {
         focusStatus={focusStatus}
         focusTarget={focusTarget}
         frame={frame}
-        mode={reviewMode}
         onContextCountChange={setContextCount}
         onEventSettingsChange={updateEventSettings}
         onExit={() => setFocusTarget(null)}
-        onModeChange={setReviewMode}
         onRetryEvents={() => setEventRetry((value) => value + 1)}
         onSeek={seek}
         onTrajectoryModeChange={setTrajectoryMode}

@@ -27,14 +27,12 @@ interface FocusReviewProps {
   evidence: TrackEvidenceResponse | null;
   filmstrip: FilmstripResponse | null;
   events: TimelineEventsResponse | null;
-  mode: "focus" | "context";
   contextCount: number;
   eventSettings: EventSettings;
   eventStatus: "idle" | "loading" | "updating" | "error";
   eventError: string;
   onSeek(frame: number): void;
   onExit(): void;
-  onModeChange(mode: "focus" | "context"): void;
   onContextCountChange(count: number): void;
   onEventSettingsChange(update: (settings: EventSettings) => EventSettings): void;
   onRetryEvents(): void;
@@ -281,14 +279,12 @@ export function FocusReview({
   evidence,
   filmstrip,
   events,
-  mode,
   contextCount,
   eventSettings,
   eventStatus,
   eventError,
   onSeek,
   onExit,
-  onModeChange,
   onContextCountChange,
   onEventSettingsChange,
   onRetryEvents,
@@ -337,22 +333,8 @@ export function FocusReview({
         <button onClick={onExit} type="button">Exit Focus</button>
       </div>
       <div className="review-settings">
-        <fieldset className="mode-control">
-          <legend>Overlay mode</legend>
-          {(["focus", "context"] as const).map((option) => (
-            <label key={option}>
-              <input
-                checked={mode === option}
-                name="overlay-mode"
-                onChange={() => onModeChange(option)}
-                type="radio"
-              />
-              <span>{option === "focus" ? "Focus" : "Context"}</span>
-            </label>
-          ))}
-        </fieldset>
         <label className="context-count">
-          <span>Context tracks</span>
+          <span>Number of nearby tracks</span>
           <input
             max="8"
             min="0"
@@ -362,17 +344,14 @@ export function FocusReview({
             value={contextCount}
           />
         </label>
-        <fieldset className="trajectory-control">
-          <legend>Trajectory evidence</legend>
-          <label>
-            <input checked={trajectoryMode === "past"} name="trajectory-mode" onChange={() => onTrajectoryModeChange("past")} type="radio" />
-            <span>Past through current</span>
-          </label>
-          <label>
-            <input checked={trajectoryMode === "complete"} name="trajectory-mode" onChange={() => onTrajectoryModeChange("complete")} type="radio" />
-            <span>Complete track (future dashed)</span>
-          </label>
-        </fieldset>
+        <label className="trajectory-toggle">
+          <input
+            checked={trajectoryMode === "complete"}
+            onChange={(event) => onTrajectoryModeChange(event.target.checked ? "complete" : "past")}
+            type="checkbox"
+          />
+          <span>Show future trajectory</span>
+        </label>
       </div>
       <fieldset className="event-controls">
         <legend>Optional review events</legend>
