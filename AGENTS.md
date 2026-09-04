@@ -11,7 +11,8 @@ The repository is currently a scaffold. Do not claim that a framework, package m
 Use this intended layout unless the implementation establishes a better documented pattern:
 
 - `track-viz/` — self-contained MOT20 viewer backend, React UI, tests, configuration, scripts, documentation, and ignored derived artifacts.
-- `src/mot20/` — production packages, with focused modules such as `detection/`, `reid/`, `association/`, `tracking/`, and `evaluation/`.
+- `finetuning/` — self-contained detector fine-tuning package, tests, scripts, and RF-DETR documentation.
+- `finetuning/src/mot20/` — detector-training packages, including conversion and RF-DETR integration.
 - `tests/` — automated tests mirroring source paths; keep lightweight fixtures under `tests/fixtures/`.
 - `configs/` — versioned experiment and pipeline configuration. Put tunable values here, not in Python literals.
 - `scripts/` — thin, repeatable entry points for training, inference, conversion, and evaluation.

@@ -14,6 +14,7 @@ Physical layout and navigation. Prefer repo-relative paths.
 | `.claude/skills/` | Claude-compatible mirror of project skills |
 | `.codex/` | Codex project settings and lifecycle hooks |
 | `.github/` | GitHub Copilot instructions, prompts, and hooks |
+| `finetuning/` | Self-contained RF-DETR detector fine-tuning code, tests, scripts, and documentation |
 
 ## Viewer Implementation
 
@@ -26,7 +27,7 @@ Physical layout and navigation. Prefer repo-relative paths.
 
 | Path | Intended role |
 | --- | --- |
-| `src/mot20/detection/` | Detector adapters, inference, and post-processing |
+| `finetuning/src/mot20/detection/` | RF-DETR detector conversion, loss integration, and training adapters |
 | `src/mot20/reid/` | Appearance models, embeddings, and distance functions |
 | `src/mot20/association/` | Cost construction, gating, and assignment |
 | `src/mot20/tracking/` | Track state and lifecycle management |
