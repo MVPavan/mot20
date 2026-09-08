@@ -239,30 +239,30 @@ variant. Values are read from the accumulator directly, because pycocotools'
 `summarize()` computes the headline AP with a hardcoded `maxDets = 100` that is
 absent from this list and silently yields −1.
 
-| Metric | `rfdetr2xl-e5-t005` | `rfdetr2xl-e5-t010` | `rfdetr2xl-e5-t010-nms070` | `yoloxx20` |
-| --- | ---: | ---: | ---: | ---: |
-| mAP@50 | 0.9585 | 0.9585 | 0.9510 | 0.9000 |
-| mAP@75 | 0.7595 | 0.7549 | 0.7483 | 0.8278 |
-| mAP@50:95 | 0.6369 | 0.6337 | 0.6297 | 0.6759 |
-| AR@50:95 | 0.6957 | 0.6883 | 0.6811 | 0.7104 |
-| mAP small | 0.1651 | 0.1628 | 0.1626 | 0.3074 |
-| mAP medium | 0.5983 | 0.5948 | 0.5895 | 0.6536 |
-| mAP large | 0.7058 | 0.7043 | 0.6995 | 0.7216 |
-| boxes total | 1,265,422 | 949,595 | 865,842 | 580,369 |
-| boxes/frame mean | 283.54 | 212.77 | 194.00 | 130.04 |
-| boxes/frame max | 386 | 355 | 331 | 213 |
-| dup pairs/frame @IoU≥0.75 | 33.219 | 13.764 | 0.000 | 0.000 |
-| frames with duplicates | 4,463 | 4,450 | 0 | 0 |
-| box height median (px) | 127.3 | 132.3 | 132.7 | 135.5 |
+| Metric | `rfdetr2xl-armd-e9-t005` | `rfdetr2xl-armd-e9-t010-nms070` | `rfdetr2xl-e5-t005` | `rfdetr2xl-e5-t010` | `rfdetr2xl-e5-t010-nms070` | `yoloxx20` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| mAP@50 | 0.9663 | 0.9528 | 0.9585 | 0.9585 | 0.9510 | 0.9000 |
+| mAP@75 | 0.7716 | 0.7603 | 0.7595 | 0.7549 | 0.7483 | 0.8278 |
+| mAP@50:95 | 0.6446 | 0.6351 | 0.6369 | 0.6337 | 0.6297 | 0.6759 |
+| AR@50:95 | 0.7018 | 0.6892 | 0.6957 | 0.6883 | 0.6811 | 0.7104 |
+| mAP small | 0.1726 | 0.1698 | 0.1651 | 0.1628 | 0.1626 | 0.3074 |
+| mAP medium | 0.6030 | 0.5963 | 0.5983 | 0.5948 | 0.5895 | 0.6536 |
+| mAP large | 0.7170 | 0.7110 | 0.7058 | 0.7043 | 0.6995 | 0.7216 |
+| boxes total | 1,261,854 | 873,131 | 1,265,422 | 949,595 | 865,842 | 580,369 |
+| boxes/frame mean | 282.74 | 195.64 | 283.54 | 212.77 | 194.00 | 130.04 |
+| boxes/frame max | 383 | 326 | 386 | 355 | 331 | 213 |
+| dup pairs/frame @IoU≥0.75 | 31.400 | 0.000 | 33.219 | 13.764 | 0.000 | 0.000 |
+| frames with duplicates | 4,463 | 0 | 4,463 | 4,450 | 0 | 0 |
+| box height median (px) | 128.0 | 132.7 | 127.3 | 132.3 | 132.7 | 135.5 |
 
 Survivors at a score threshold:
 
-| Threshold | `rfdetr2xl-e5-t005` | `rfdetr2xl-e5-t010` | `rfdetr2xl-e5-t010-nms070` | `yoloxx20` |
-| --- | ---: | ---: | ---: | ---: |
-| ≥ 0.10 | 949,595 | 949,595 | 865,842 | 580,369 |
-| ≥ 0.40 | 638,477 | 638,477 | 634,487 | 553,800 |
-| ≥ 0.50 | 617,411 | 617,411 | 614,858 | 548,609 |
-| ≥ 0.60 | 594,635 | 594,635 | 592,964 | 542,704 |
+| Threshold | `rfdetr2xl-armd-e9-t005` | `rfdetr2xl-armd-e9-t010-nms070` | `rfdetr2xl-e5-t005` | `rfdetr2xl-e5-t010` | `rfdetr2xl-e5-t010-nms070` | `yoloxx20` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| ≥ 0.10 | 958,353 | 873,131 | 949,595 | 949,595 | 865,842 | 580,369 |
+| ≥ 0.40 | 644,154 | 639,978 | 638,477 | 638,477 | 634,487 | 553,800 |
+| ≥ 0.50 | 624,672 | 621,907 | 617,411 | 617,411 | 614,858 | 548,609 |
+| ≥ 0.60 | 604,965 | 603,045 | 594,635 | 594,635 | 592,964 | 542,704 |
 
 **The baseline detector has the higher mAP@50:95.** RF-DETR leads only at IoU 0.5.
 
@@ -313,34 +313,34 @@ IoU 0.5, detections filtered at score ≥ 0.4
 (the tracker's `det_thresh`). `det:` rows are raw detections, `trk:` rows are
 tracker output, so the pair isolates what the tracker does to box quality.
 
-| Metric | `det:rfdetr2xl-e5-t005` | `det:yoloxx20` | `trk:rfdetr2xl-e5-t005__osnet-ain-msdc__btpp-default` | `trk:yoloxx20__osnet-ain-msdc__btpp-default` |
-| --- | ---: | ---: | ---: | ---: |
-| boxes | 638,477 | 553,800 | 627,099 | 538,112 |
-| GT boxes | 615,137 | 615,137 | 615,137 | 615,137 |
-| matched | 565,953 | 546,012 | 558,775 | 531,193 |
-| recall @IoU 0.5 | 0.9200 | 0.8876 | 0.9084 | 0.8635 |
-| precision @IoU 0.5 | 0.8864 | 0.9859 | 0.8910 | 0.9871 |
-| mean matched IoU | 0.8334 | 0.8713 | 0.8343 | 0.8726 |
-| median matched IoU | 0.8473 | 0.8845 | 0.8480 | 0.8855 |
-| fraction IoU ≥ 0.50 | 1.0000 | 1.0000 | 1.0000 | 1.0000 |
-| fraction IoU ≥ 0.70 | 0.9284 | 0.9740 | 0.9315 | 0.9756 |
-| fraction IoU ≥ 0.75 | 0.8518 | 0.9421 | 0.8557 | 0.9450 |
-| fraction IoU ≥ 0.80 | 0.7105 | 0.8659 | 0.7143 | 0.8709 |
-| fraction IoU ≥ 0.90 | 0.2139 | 0.3926 | 0.2152 | 0.3999 |
-| edge residual mean x1 | -0.0047 | -0.0006 | -0.0051 | -0.0010 |
-| edge residual mean x2 | 0.0087 | -0.0019 | 0.0089 | -0.0018 |
-| edge residual mean y1 | -0.0052 | -0.0005 | -0.0055 | -0.0008 |
-| edge residual mean y2 | 0.0012 | 0.0010 | 0.0013 | 0.0011 |
-| edge residual |mean| x1 | 0.0604 | 0.0468 | 0.0605 | 0.0467 |
-| edge residual |mean| x2 | 0.0630 | 0.0473 | 0.0628 | 0.0469 |
-| edge residual |mean| y1 | 0.0234 | 0.0184 | 0.0233 | 0.0183 |
-| edge residual |mean| y2 | 0.0449 | 0.0308 | 0.0439 | 0.0297 |
-| size ratio median height | 1.0029 | 0.9990 | 1.0035 | 1.0000 |
-| size ratio median width | 1.0094 | 0.9954 | 1.0101 | 0.9960 |
+| Metric | `det:rfdetr2xl-armd-e9-t005` | `det:rfdetr2xl-armd-e9-t010-nms070` | `det:rfdetr2xl-e5-t005` | `det:rfdetr2xl-e5-t010-nms070` | `det:yoloxx20` | `trk:rfdetr2xl-armd-e9-t010-nms070__osnet-ain-msdc__btpp-default` | `trk:rfdetr2xl-e5-t005__osnet-ain-msdc__btpp-default` | `trk:rfdetr2xl-e5-t010-nms070__osnet-ain-msdc__btpp-default` | `trk:yoloxx20__osnet-ain-msdc__btpp-default` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| boxes | 644,154 | 639,978 | 638,477 | 634,487 | 553,800 | 632,525 | 627,099 | 623,257 | 538,112 |
+| GT boxes | 615,137 | 615,137 | 615,137 | 615,137 | 615,137 | 615,137 | 615,137 | 615,137 | 615,137 |
+| matched | 571,793 | 569,751 | 565,953 | 564,045 | 546,012 | 564,352 | 558,775 | 556,559 | 531,193 |
+| recall @IoU 0.5 | 0.9295 | 0.9262 | 0.9200 | 0.9169 | 0.8876 | 0.9174 | 0.9084 | 0.9048 | 0.8635 |
+| precision @IoU 0.5 | 0.8877 | 0.8903 | 0.8864 | 0.8890 | 0.9859 | 0.8922 | 0.8910 | 0.8930 | 0.9871 |
+| mean matched IoU | 0.8354 | 0.8356 | 0.8334 | 0.8336 | 0.8713 | 0.8362 | 0.8343 | 0.8345 | 0.8726 |
+| median matched IoU | 0.8490 | 0.8492 | 0.8473 | 0.8475 | 0.8845 | 0.8494 | 0.8480 | 0.8481 | 0.8855 |
+| fraction IoU ≥ 0.50 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 |
+| fraction IoU ≥ 0.70 | 0.9323 | 0.9327 | 0.9284 | 0.9290 | 0.9740 | 0.9348 | 0.9315 | 0.9324 | 0.9756 |
+| fraction IoU ≥ 0.75 | 0.8587 | 0.8593 | 0.8518 | 0.8524 | 0.9421 | 0.8623 | 0.8557 | 0.8567 | 0.9450 |
+| fraction IoU ≥ 0.80 | 0.7197 | 0.7204 | 0.7105 | 0.7111 | 0.8659 | 0.7234 | 0.7143 | 0.7152 | 0.8709 |
+| fraction IoU ≥ 0.90 | 0.2209 | 0.2213 | 0.2139 | 0.2143 | 0.3926 | 0.2220 | 0.2152 | 0.2158 | 0.3999 |
+| edge residual mean x1 | -0.0064 | -0.0064 | -0.0047 | -0.0046 | -0.0006 | -0.0068 | -0.0051 | -0.0050 | -0.0010 |
+| edge residual mean x2 | 0.0032 | 0.0031 | 0.0087 | 0.0087 | -0.0019 | 0.0032 | 0.0089 | 0.0088 | -0.0018 |
+| edge residual mean y1 | -0.0055 | -0.0055 | -0.0052 | -0.0052 | -0.0005 | -0.0058 | -0.0055 | -0.0055 | -0.0008 |
+| edge residual mean y2 | 0.0030 | 0.0030 | 0.0012 | 0.0012 | 0.0010 | 0.0030 | 0.0013 | 0.0013 | 0.0011 |
+| edge residual |mean| x1 | 0.0604 | 0.0603 | 0.0604 | 0.0602 | 0.0468 | 0.0605 | 0.0605 | 0.0603 | 0.0467 |
+| edge residual |mean| x2 | 0.0612 | 0.0611 | 0.0630 | 0.0629 | 0.0473 | 0.0610 | 0.0628 | 0.0627 | 0.0469 |
+| edge residual |mean| y1 | 0.0225 | 0.0225 | 0.0234 | 0.0234 | 0.0184 | 0.0225 | 0.0233 | 0.0233 | 0.0183 |
+| edge residual |mean| y2 | 0.0446 | 0.0445 | 0.0449 | 0.0449 | 0.0308 | 0.0436 | 0.0439 | 0.0438 | 0.0297 |
+| size ratio median height | 1.0050 | 1.0050 | 1.0029 | 1.0029 | 0.9990 | 1.0056 | 1.0035 | 1.0035 | 1.0000 |
+| size ratio median width | 1.0063 | 1.0062 | 1.0094 | 1.0093 | 0.9954 | 1.0068 | 1.0101 | 1.0100 | 0.9960 |
 
 Localization is unchanged across the tracker, so no post-detection stage
 degrades box quality. The error is symmetric jitter, not a correctable offset:
-edge residual means are near zero while their absolute values are 27–46% larger
+edge residual means are near zero while their absolute values are 22–46% larger
 than the baseline's.
 
 ## 6. Per-stage tracker instrumentation

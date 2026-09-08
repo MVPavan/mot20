@@ -437,7 +437,7 @@ def build() -> str:
         add("")
         add("Localization is unchanged across the tracker, so no post-detection stage")
         add("degrades box quality. The error is symmetric jitter, not a correctable offset:")
-        add("edge residual means are near zero while their absolute values are 27–46% larger")
+        add("edge residual means are near zero while their absolute values are 22–46% larger")
         add("than the baseline's.")
         add("")
 

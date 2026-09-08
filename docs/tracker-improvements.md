@@ -14,6 +14,15 @@ Status legend: `[ ]` open, `[x]` done, `[~]` in progress, `[!]` blocked.
 
 ## Where we are
 
+**The `yoloxx20` baseline is not held out on `val_half`.** `bytetrack_x_mot20.tar`
+trained on the full MOT20 train set, of which `val_half` is the second half, so
+every gap in this file is measured against an advantaged opponent and is a lower
+bound on RF-DETR. `datasets/README.md` already recorded this and the tracker docs
+failed to carry it forward. Upstream `default_settings.py` substitutes the MOT17
+model for MOT20 validation for exactly this reason, but **MOT17 is out of scope
+(decided 2026-09-08)**, so no clean external baseline is available and the caveat
+is permanent. Full evidence in `docs/experiment-report.md` §0.
+
 ### Current best, after Tier 0
 
 Each detector with its own best ReID and association settings, on `val_half`
@@ -59,10 +68,9 @@ reachable from the tracker side has been measured; see Phase 8b.
 | I1 | Adopt greedy NMS at IoU 0.7 as the export default | 0 | no | Done |
 | I2 | Sweep the association hyperparameters never swept | 0 | no | Done — +0.21, gap unchanged |
 | I3 | Measure with `mot20_sbs_S50.pth` FastReID embeddings | 0 | inference | Done — +0.70 HOTA |
-| I4 | Add MOT20 `val_half` to training, ByteTrack parity | 1 | training | Open |
+| I4 | Add MOT20 `val_half` to training, ByteTrack parity | 1 | training | **Running since 2026-09-08 09:54** — arm-D recipe from base weights, 7 GPUs, 8 epochs, `rfdetr-2xl-i4-competition-2026-09-08-r1` |
 | I5 | Rebalance the CrowdHuman/MOT20 mix | 1 | training | **Done — hypothesis falsified.** All three arms complete; mix moves peak mAP by 1% relative and arm A stays best |
 | I6 | Raise the training long-side cap to 1600 | 1 | training | **Done — HOTA 70.777, first result to beat the 70.208 baseline.** Gain is association, not localization; LocA moved only +0.131 |
-| I6 | Raise the training long-side cap above 1333 | 1 | training | Open |
 | I7 | Fix the schedule and investigate why EMA lost | 1 | training | Open |
 | I8 | Check CrowdHuman's box convention against MOT20's | 1 | no | Open |
 

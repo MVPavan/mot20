@@ -158,7 +158,7 @@ contents depend only on the images.
 | --- | --- |
 | Status | Completed 2026-09-05 |
 | Split | MOT20-01, -02, -03, -05 second halves. BoostTrack's vendored `results/gt/MOT20-val/` is byte-equivalent in span to `datasets/val_half/` (MOT20-01 is `seqLength=214`, frames renumbered from 1) |
-| Classification | Held out for both detector and ReID. The detector trained on `train_half`; the ReID model is the generic OSNet, not the val-trained SBS model |
+| Classification | Held out for both detector and ReID **on the RF-DETR side**. The detector trained on `train_half`; the ReID model is the generic OSNet, not the val-trained SBS model. The `yoloxx20` baseline is **not** held out: `bytetrack_x_mot20.tar` trained on the full MOT20 train set and has seen these frames, as `datasets/README.md` records. MOT17 is out of scope, so no clean external baseline is available and the caveat is permanent. See `docs/experiment-report.md` §0 |
 | Variant | BoostTrack++ with ReID, upstream default settings |
 | Evaluation | Vendored TrackEval, `run_mot_challenge.py --BENCHMARK MOT20 --SPLIT_TO_EVAL val` |
 | Baseline | The same runner over the existing `datasets/val_half/<seq>/det_yoloxx20/det_yoloxx20.txt` detections, holding tracker and ReID fixed and varying only the detector |
