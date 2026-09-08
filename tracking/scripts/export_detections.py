@@ -198,9 +198,21 @@ def main() -> None:
     # Group by sequence, then renumber original MOT20 frames to the split's own
     # 1-based numbering, which is what the split's images and ground truth use.
     by_sequence: dict[str, dict[int, np.ndarray]] = defaultdict(dict)
+    # A detector may emit a box with zero or inverted extent — arm C produced one
+    # in MOT20-03 at the 0.05 export threshold. Such a box carries no usable
+    # geometry and `validate_detections` rejects it outright, so it is dropped
+    # here rather than written. The count is recorded per sequence and in the
+    # manifest: dropping is permitted, dropping silently is not.
+    degenerate_dropped: dict[str, int] = defaultdict(int)
     for image_id, meta in image_index.items():
         boxes, scores = captured[image_id]
         rows = np.column_stack([boxes, scores]).astype(np.float32) if len(scores) else np.empty((0, 5), np.float32)
+        if rows.shape[0]:
+            keep = (rows[:, 2] > rows[:, 0]) & (rows[:, 3] > rows[:, 1])
+            dropped = int((~keep).sum())
+            if dropped:
+                degenerate_dropped[str(meta["sequence"])] += dropped
+                rows = rows[keep]
         by_sequence[str(meta["sequence"])][int(meta["source_frame_id"])] = rows
 
     entries = []
@@ -222,6 +234,7 @@ def main() -> None:
                 "written_sha256": sha256_file(destination),
                 "width": sequence.width,
                 "height": sequence.height,
+                "degenerate_boxes_dropped": degenerate_dropped.get(name, 0),
                 **statistics,
             }
         )
@@ -229,8 +242,12 @@ def main() -> None:
             f"{name}: {statistics['detections']:>7} detections, "
             f"max/frame {statistics['max_per_frame']:>3}, "
             f"score {statistics['min_score']:.4f}-{statistics['max_score']:.4f}, "
-            f"empty frames {statistics['empty_frames']}"
+            f"empty frames {statistics['empty_frames']}, "
+            f"degenerate dropped {degenerate_dropped.get(name, 0)}"
         )
+
+    total_degenerate = sum(degenerate_dropped.values())
+    print(f"degenerate boxes dropped across the split: {total_degenerate}")
 
     digest = artifacts.write_manifest(
         level_dir,

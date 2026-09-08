@@ -125,13 +125,48 @@ partial evidence for I7: EMA was updating.
 Interpretation: `docs/tracker-improvements.md` section I6, and
 `docs/experiment-report.md`.
 
-## In Progress: I4 Competition Build
+## Completed: I4 Competition Build
 
-Started 2026-09-08 09:54. Running in host tmux session `mot20`, window
-`i4-competition`, so it survives the editor session that launched it. Launcher
+Started 2026-09-08 09:54, **completed 12:28:47**, `train_call_wall_seconds`
+8,983.98 (2 h 30 m). Ran in host tmux session `mot20`, window `i4-competition`,
+so it survived the editor session that launched it. Launcher
 `finetuning/scripts/run_rfdetr_2xl_i4_competition.sh`; host-side log
 `finetuning/artifacts/i4-competition-launch.log`; per-epoch record
 `finetuning/artifacts/rfdetr-2xl-i4-competition-2026-09-08-r1/metrics.csv`.
+
+Clean exit: `Trainer.fit stopped: max_epochs=8 reached`, and
+`launcher-result.json` was written, which is the only trustworthy completion
+marker for this workstream.
+
+**Delivered checkpoint**
+
+| Item | Value |
+| --- | --- |
+| File | `last_ema.pth` — as pre-declared before the run finished |
+| sha256 | `fb3f2f0dba7d3b236652d0ae02c1d19874ee4c5f26145d853fe4ac63ec25ceb6` |
+| `epoch` / `global_step` | 8 / **4,048** |
+
+**The predicted checkpoint-naming trap occurred exactly as described.** The
+console log's final line reads:
+
+```
+EMA metric never improved; saved final EMA weights as checkpoint_best_ema.pth
+```
+
+So `checkpoint_best_ema.pth` (sha256 `98ba273f…`) is a **backfill of the final
+EMA weights, not a validation-selected best**. No `checkpoint_best_total.pth` or
+`checkpoint_best_regular.pth` was produced at all, because there was no metric
+to select on.
+
+Verified directly rather than assumed: the two files hold **identical weights** —
+532 tensors compared, zero differing, both reporting `global_step = 4048`. So
+the risk here was mislabelled provenance, not wrong weights. Either file yields
+the same model; only `last_ema.pth` describes truthfully how it was obtained.
+Do not report `checkpoint_best_ema.pth` as "best" anywhere.
+
+**Step count confirmed empirically.** The checkpoint's own `global_step` is
+4,048, matching 506 x 8 and refuting the config header's "about 4,046 at 505.75
+steps per epoch". See the correction below.
 
 | Item | Value |
 | --- | --- |
@@ -150,7 +185,8 @@ The config's header comment computes "505.75 steps per epoch, so 8 epochs is
 about 4,046 steps". That division is the right idea but the wrong number, and
 the reasoning attached to it is looser than it was stated.
 
-The true count is **506 steps per epoch, 4,048 in eight epochs.** RF-DETR's
+The true count is **506 steps per epoch, 4,048 in eight epochs** — since
+confirmed by the finished run's own `global_step = 4048`. RF-DETR's
 `GradAccumAlignedDataset` pads the dataset up to a multiple of
 `effective_batch_size x world_size` so that gradient accumulation never fires on
 a partial window, so 28,322 images become 28,336 and divide exactly by 56. It
@@ -187,6 +223,14 @@ Declared in advance of the run finishing, so it cannot be chosen post hoc:
   `checkpoint_best_regular.pth` from this run are to be treated as artifacts of
   the callback, not as selections, and must not be reported as "best".
 - Record the sha256 of `last_ema.pth` in this receipt when the run completes.
+
+**Outcome, 2026-09-08 12:28.** All three predictions held: no
+`checkpoint_best_total.pth` or `checkpoint_best_regular.pth` was written,
+`checkpoint_best_ema.pth` was explicitly backfilled per the console log, and
+`last_ema.pth` is the honest name for the weights. Because the two EMA files
+turned out to be weight-identical, declaring in advance changed the *record*
+rather than the *model* — which is the outcome to hope for, and is only knowable
+because the declaration was made first.
 
 The empty `valid` split had never been exercised by the training loop. It works:
 Lightning emits `Total length of DataLoader across ranks is zero` as a warning
