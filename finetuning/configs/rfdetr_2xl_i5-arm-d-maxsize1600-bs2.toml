@@ -1,0 +1,51 @@
+# Arm D second fallback: micro-batch 2 with gradient accumulation 4.
+#
+# Effective batch is still 2 x 4 x 8 = 64, identical to arm A and to the other
+# arm-D configs, so the arm stays comparable no matter which one runs. Only used
+# if micro-batch 4 also fails with a CUDA out-of-memory error.
+[run]
+status = "approved"
+classification = "local_test_adapted"
+ignored_iou_threshold = 0.5
+
+[model]
+name = "RFDETR2XLarge"
+checkpoint = "weights/rfdetr/rf-detr-xxlarge.pth"
+num_classes = 1
+resolution = 1120
+max_size = 1600
+amp = true
+gradient_checkpointing = true
+
+[capacity]
+group_detr = 13
+num_queries = 390
+num_select = 390
+eval_max_dets = 390
+
+[training]
+batch_size = 2
+grad_accum_steps = 4
+devices = 8
+strategy = "ddp"
+sync_bn = true
+epochs = 30
+lr = 0.00005
+lr_encoder = 0.000075
+weight_decay = 0.0001
+amp_dtype = "bf16"
+multi_scale = true
+do_random_resize_via_padding = true
+square_resize_div_64 = false
+scale_jitter = false
+use_ema = true
+eval_interval = 2
+warmup_epochs = 1.0
+lr_scheduler = "step"
+lr_drop = 24
+checkpoint_interval = 5
+num_workers = 4
+pin_memory = true
+persistent_workers = true
+save_dataset_grids = false
+seed = 42

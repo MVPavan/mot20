@@ -19,7 +19,11 @@ from mot20.detection.checkpoint_loading import expand_query_parameters
 from mot20.detection.coco_conversion import write_coco_manifest
 from mot20.detection.dataset_audit import audit_rfdetr_coco_dataset
 from mot20.detection.rfdetr_integration import use_ignore_aware_rfdetr
-from mot20.detection.rfdetr_training import load_training_config, validate_training_config
+from mot20.detection.rfdetr_training import (
+    apply_long_side_cap,
+    load_training_config,
+    validate_training_config,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -63,9 +67,13 @@ def main() -> None:
     _validate_external_ddp_launch(config["training"])
     run_dir, expanded_checkpoint, provenance = _prepare_run_artifacts(config, checkpoint, args.run_dir.resolve(), provenance)
 
+    model_config = config["model"]
+    long_side_cap = apply_long_side_cap(model_config.get("max_size"))
+    if os.environ.get("LOCAL_RANK", "0") == "0":
+        print(f"long-side cap in force: {long_side_cap}px")
+
     from rfdetr import RFDETR2XLarge
 
-    model_config = config["model"]
     capacity = config["capacity"]
     training = config["training"]
     model = RFDETR2XLarge(

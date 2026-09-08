@@ -303,6 +303,327 @@ def merge_bytetrack_mot20_crowdhuman(
     }
 
 
+def repeat_coco_manifest(manifest: dict[str, Any], repeat_factor: int) -> dict[str, Any]:
+    """Repeat every COCO item while retaining each source-manifest identity."""
+    if repeat_factor < 1:
+        raise ValueError(f"repeat_factor must be positive, got {repeat_factor}")
+    _validate_categories((manifest,))
+    source_images = manifest.get("images")
+    source_annotations = manifest.get("annotations")
+    if not isinstance(source_images, list) or not isinstance(source_annotations, list):
+        raise ValueError("COCO manifest requires image and annotation arrays")
+    image_ids = {image.get("id") for image in source_images}
+    if len(image_ids) != len(source_images) or None in image_ids:
+        raise ValueError("COCO manifest has duplicate or missing image IDs")
+    annotation_ids = {annotation.get("id") for annotation in source_annotations}
+    if len(annotation_ids) != len(source_annotations) or None in annotation_ids:
+        raise ValueError("COCO manifest has duplicate or missing annotation IDs")
+
+    images: list[dict[str, Any]] = []
+    annotations: list[dict[str, Any]] = []
+    next_image_id = 1
+    next_annotation_id = 1
+    for repeat_index in range(1, repeat_factor + 1):
+        repeated_image_ids: dict[Any, int] = {}
+        for source_image in source_images:
+            source_image_id = source_image["id"]
+            image = copy.deepcopy(source_image)
+            image["id"] = next_image_id
+            image["source_manifest_image_id"] = source_image.get("source_manifest_image_id", source_image_id)
+            image["oversample_repeat_index"] = repeat_index
+            repeated_image_ids[source_image_id] = next_image_id
+            images.append(image)
+            next_image_id += 1
+        for source_annotation in source_annotations:
+            source_image_id = source_annotation.get("image_id")
+            if source_image_id not in repeated_image_ids:
+                raise ValueError(f"annotation {source_annotation.get('id')} references an unknown image")
+            annotation = copy.deepcopy(source_annotation)
+            annotation["id"] = next_annotation_id
+            annotation["image_id"] = repeated_image_ids[source_image_id]
+            annotation["source_manifest_annotation_id"] = source_annotation.get(
+                "source_manifest_annotation_id", source_annotation["id"]
+            )
+            annotations.append(annotation)
+            next_annotation_id += 1
+    return {
+        "images": images,
+        "annotations": annotations,
+        "videos": copy.deepcopy(manifest.get("videos", [])),
+        "categories": copy.deepcopy(manifest["categories"]),
+        "metadata": {
+            **copy.deepcopy(manifest.get("metadata", {})),
+            "intentional_oversampling": {"repeat_factor": repeat_factor},
+        },
+    }
+
+
+def merge_rfdetr_coco_sources(
+    sources: tuple[tuple[str, str, dict[str, Any]], ...],
+) -> dict[str, Any]:
+    """Merge named COCO sources with sequential IDs and source-ID provenance."""
+    if not sources:
+        raise ValueError("at least one COCO source is required")
+    _validate_categories(manifest for _, _, manifest in sources)
+    images: list[dict[str, Any]] = []
+    annotations: list[dict[str, Any]] = []
+    videos: list[dict[str, Any]] = []
+    next_image_id = 1
+    next_annotation_id = 1
+    next_video_id = 1
+
+    for source_name, file_prefix, manifest in sources:
+        if not source_name or not file_prefix or Path(file_prefix).name != file_prefix:
+            raise ValueError(f"invalid COCO source name or file prefix: {source_name!r}, {file_prefix!r}")
+        source_images = manifest.get("images")
+        source_annotations = manifest.get("annotations")
+        if not isinstance(source_images, list) or not isinstance(source_annotations, list):
+            raise ValueError(f"COCO source {source_name} requires image and annotation arrays")
+        source_image_ids = {image.get("id") for image in source_images}
+        if len(source_image_ids) != len(source_images) or None in source_image_ids:
+            raise ValueError(f"COCO source {source_name} has duplicate or missing image IDs")
+        source_annotation_ids = {annotation.get("id") for annotation in source_annotations}
+        if len(source_annotation_ids) != len(source_annotations) or None in source_annotation_ids:
+            raise ValueError(f"COCO source {source_name} has duplicate or missing annotation IDs")
+
+        source_videos = {video["id"]: video for video in manifest.get("videos", [])}
+        video_ids: dict[Any, int] = {}
+        if source_videos:
+            for source_video_id, source_video in sorted(source_videos.items()):
+                video_ids[source_video_id] = next_video_id
+                videos.append(
+                    {
+                        "id": next_video_id,
+                        "file_name": f"{source_name}/{source_video['file_name']}",
+                        "source_video_id": source_video_id,
+                    }
+                )
+                next_video_id += 1
+        else:
+            video_ids[None] = next_video_id
+            videos.append({"id": next_video_id, "file_name": source_name, "source_video_id": None})
+            next_video_id += 1
+
+        image_ids: dict[Any, int] = {}
+        for source_image in source_images:
+            source_image_id = source_image["id"]
+            image = copy.deepcopy(source_image)
+            image_ids[source_image_id] = next_image_id
+            image["id"] = next_image_id
+            image["source_manifest_image_id"] = source_image.get("source_manifest_image_id", source_image_id)
+            image["file_name"] = f"{file_prefix}/{image['file_name']}"
+            source_video_id = image.get("video_id")
+            image["video_id"] = video_ids[source_video_id] if source_video_id in video_ids else video_ids[None]
+            images.append(image)
+            next_image_id += 1
+
+        for source_annotation in source_annotations:
+            source_image_id = source_annotation["image_id"]
+            if source_image_id not in image_ids:
+                raise ValueError(f"annotation {source_annotation['id']} references an unknown image {source_image_id}")
+            annotation = copy.deepcopy(source_annotation)
+            annotation["id"] = next_annotation_id
+            annotation["image_id"] = image_ids[source_image_id]
+            annotation["source_manifest_annotation_id"] = source_annotation.get(
+                "source_manifest_annotation_id", source_annotation["id"]
+            )
+            annotations.append(annotation)
+            next_annotation_id += 1
+
+    return {
+        "images": images,
+        "annotations": annotations,
+        "videos": videos,
+        "categories": [{"id": 1, "name": "pedestrian"}],
+        "metadata": {
+            "format": "mot20.rfdetr.coco.v1",
+            "conversion_revision": CONVERSION_REVISION,
+            "source": "RF-DETR COCO source mixture",
+            "sources": [source_name for source_name, _, _ in sources],
+        },
+    }
+
+
+def build_i5_ablation_train_manifest(
+    arm: Literal["b", "c"],
+    mot20_train_half: dict[str, Any],
+    crowdhuman_train: dict[str, Any],
+    crowdhuman_val: dict[str, Any],
+    byte65_manifest: dict[str, Any],
+) -> dict[str, Any]:
+    """Build I5's declared train-only mix while preserving source provenance."""
+    _validate_i5_source_manifest(mot20_train_half, "MOT20", "train_half")
+    _validate_i5_source_manifest(crowdhuman_train, "CrowdHuman", "train")
+    _validate_i5_source_manifest(crowdhuman_val, "CrowdHuman", "val")
+    _validate_i5_source_manifest(byte65_manifest, "Byte65", "test_adapted_overlay")
+    if byte65_manifest.get("metadata", {}).get("human_audit") != "exhaustive":
+        raise ValueError("I5 requires an exhaustively human-audited Byte65 overlay")
+
+    mot20_source = repeat_coco_manifest(mot20_train_half, repeat_factor=4) if arm == "b" else mot20_train_half
+    sources: list[tuple[str, str, dict[str, Any]]] = [("mot20_train_half", "mot20_train", mot20_source)]
+    if arm == "b":
+        sources.extend(
+            (
+                ("crowdhuman_train", "crowdhuman_train", crowdhuman_train),
+                ("crowdhuman_val", "crowdhuman_val", crowdhuman_val),
+            )
+        )
+    elif arm != "c":
+        raise ValueError(f"unsupported I5 ablation arm: {arm}")
+    sources.append(("byte65_human_audited", "byte65", byte65_manifest))
+
+    manifest = merge_rfdetr_coco_sources(tuple(sources))
+    manifest["metadata"] = {
+        **manifest["metadata"],
+        "source": "ByteTrack MOT20/CrowdHuman/Byte65 mixture" if arm == "b" else "MOT20/Byte65 mixture",
+        "classification": "local_test_adapted",
+        "includes_mot20_test_derived_labels": True,
+        "held_out_benchmark_comparable": False,
+        "byte65_human_audit": "exhaustive",
+        "i5_ablation_arm": arm.upper(),
+        **(
+            {
+                "intentional_oversampling": {
+                    "source_dataset": "MOT20",
+                    "source_split": "train_half",
+                    "repeat_factor": 4,
+                }
+            }
+            if arm == "b"
+            else {}
+        ),
+    }
+    return manifest
+
+
+def build_i4_competition_train_manifest(
+    mot20_train_half: dict[str, Any],
+    mot20_val_half: dict[str, Any],
+    crowdhuman_train: dict[str, Any],
+    crowdhuman_val: dict[str, Any],
+    byte65_manifest: dict[str, Any],
+) -> dict[str, Any]:
+    """Build I4's full-MOT20 competition mix with source-ID provenance."""
+    sources = (
+        ("mot20_train_half", "mot20_train", mot20_train_half),
+        ("mot20_val_half", "mot20_train", mot20_val_half),
+        ("crowdhuman_train", "crowdhuman_train", crowdhuman_train),
+        ("crowdhuman_val", "crowdhuman_val", crowdhuman_val),
+    )
+    _validate_source_manifests(sources)
+    _validate_i5_source_manifest(byte65_manifest, "Byte65", "test_adapted_overlay")
+    if byte65_manifest.get("metadata", {}).get("human_audit") != "exhaustive":
+        raise ValueError("I4 requires an exhaustively human-audited Byte65 overlay")
+
+    manifest = merge_rfdetr_coco_sources((*sources, ("byte65_human_audited", "byte65", byte65_manifest)))
+    manifest["metadata"] = {
+        **manifest["metadata"],
+        "source": "ByteTrack full MOT20/CrowdHuman/Byte65 mixture",
+        "classification": "local_test_adapted",
+        "includes_mot20_test_derived_labels": True,
+        "held_out_benchmark_comparable": False,
+        "byte65_human_audit": "exhaustive",
+        "competition_full_train": True,
+    }
+    return manifest
+
+
+def formal_empty_competition_valid_manifest() -> dict[str, Any]:
+    """Return the required no-selection validation manifest for I4 competition training."""
+    return {
+        "images": [],
+        "annotations": [],
+        "videos": [],
+        "categories": [{"id": 1, "name": "pedestrian"}],
+        "metadata": {
+            "format": "mot20.rfdetr.coco.v1",
+            "conversion_revision": CONVERSION_REVISION,
+            "source": "I4 competition formal empty validation",
+            "split": "competition_empty",
+            "formal_empty_validation": True,
+            "checkpoint_selection": "final_epoch_selected_by_ablation",
+            "classification": "local_test_adapted",
+            "held_out_benchmark_comparable": False,
+        },
+    }
+
+
+def assemble_rfdetr_competition_dataset(
+    dataset_root: Path,
+    train_manifest: dict[str, Any],
+    train_image_roots: dict[str, Path],
+) -> None:
+    """Build I4's full-train layout with a formal empty validation manifest."""
+    dataset_root = Path(dataset_root)
+    if dataset_root.exists():
+        raise FileExistsError(f"refusing to overwrite existing RF-DETR dataset: {dataset_root}")
+    valid_manifest = formal_empty_competition_valid_manifest()
+    _validate_categories((train_manifest, valid_manifest))
+    source_roots = {name: Path(path) for name, path in train_image_roots.items()}
+    if not source_roots or any(not name or Path(name).name != name for name in source_roots):
+        raise ValueError("RF-DETR train image roots require simple non-empty names")
+    if not all(path.is_dir() for path in source_roots.values()):
+        raise ValueError("all RF-DETR train image roots must be directories")
+    train_prefixes = {Path(image.get("file_name", "")).parts[0] for image in train_manifest["images"]}
+    if train_prefixes != set(source_roots):
+        raise ValueError("RF-DETR train image roots must exactly match manifest file-name prefixes")
+
+    train_root = dataset_root / "train"
+    valid_root = dataset_root / "valid"
+    train_root.mkdir(parents=True)
+    valid_root.mkdir()
+    for name, source_root in source_roots.items():
+        _link_directory(train_root / name, source_root)
+    write_coco_manifest(train_manifest, train_root / "_annotations.coco.json")
+    write_coco_manifest(valid_manifest, valid_root / "_annotations.coco.json")
+
+
+def assemble_rfdetr_coco_dataset_from_image_roots(
+    dataset_root: Path,
+    train_manifest: dict[str, Any],
+    val_manifest: dict[str, Any],
+    train_image_roots: dict[str, Path],
+    valid_image_root: Path,
+    valid_image_prefix: str = "mot20_val",
+) -> None:
+    """Build a COCO layout linking only the image roots referenced by train."""
+    dataset_root = Path(dataset_root)
+    if dataset_root.exists():
+        raise FileExistsError(f"refusing to overwrite existing RF-DETR dataset: {dataset_root}")
+    _validate_categories((train_manifest, val_manifest))
+    val_metadata = val_manifest.get("metadata", {})
+    if val_metadata.get("source") != "MOT20" or val_metadata.get("split") != "val_half":
+        raise ValueError("expected MOT20 val_half manifest for RF-DETR validation")
+    if not valid_image_prefix or Path(valid_image_prefix).name != valid_image_prefix:
+        raise ValueError(f"invalid RF-DETR validation image root name: {valid_image_prefix!r}")
+    source_roots = {name: Path(path) for name, path in train_image_roots.items()}
+    if not source_roots or any(not name or Path(name).name != name for name in source_roots):
+        raise ValueError("RF-DETR train image roots require simple non-empty names")
+    if not all(path.is_dir() for path in (*source_roots.values(), Path(valid_image_root))):
+        raise ValueError("all RF-DETR image roots must be directories")
+    train_prefixes = {Path(image.get("file_name", "")).parts[0] for image in train_manifest["images"]}
+    if train_prefixes != set(source_roots):
+        raise ValueError("RF-DETR train image roots must exactly match manifest file-name prefixes")
+
+    train_root = dataset_root / "train"
+    valid_root = dataset_root / "valid"
+    train_root.mkdir(parents=True)
+    valid_root.mkdir()
+    for name, source_root in source_roots.items():
+        _link_directory(train_root / name, source_root)
+    _link_directory(valid_root / valid_image_prefix, Path(valid_image_root))
+
+    assembled_val_manifest = copy.deepcopy(val_manifest)
+    for image in assembled_val_manifest["images"]:
+        image["file_name"] = f"{valid_image_prefix}/{image['file_name']}"
+    assembled_val_manifest["metadata"] = {
+        **assembled_val_manifest["metadata"],
+        "assembled_image_root": valid_image_prefix,
+    }
+    write_coco_manifest(train_manifest, train_root / "_annotations.coco.json")
+    write_coco_manifest(assembled_val_manifest, valid_root / "_annotations.coco.json")
+
+
 def merge_byte65_test_adapted_overlay(
     clean_train_manifest: dict[str, Any],
     byte65_manifest: dict[str, Any],
@@ -543,6 +864,7 @@ def _validate_categories(manifests: Any) -> None:
 def _validate_source_manifests(sources: tuple[tuple[str, str, dict[str, Any]], ...]) -> None:
     expected_sources = {
         "mot20_train_half": ("MOT20", "train_half"),
+        "mot20_val_half": ("MOT20", "val_half"),
         "crowdhuman_train": ("CrowdHuman", "train"),
         "crowdhuman_val": ("CrowdHuman", "val"),
     }
@@ -551,6 +873,13 @@ def _validate_source_manifests(sources: tuple[tuple[str, str, dict[str, Any]], .
         metadata = manifest.get("metadata", {})
         if metadata.get("source") != expected_source or metadata.get("split") != expected_split:
             raise ValueError(f"expected {expected_source} {expected_split} manifest for {source_name}")
+
+
+def _validate_i5_source_manifest(manifest: dict[str, Any], source: str, split: str) -> None:
+    _validate_categories((manifest,))
+    metadata = manifest.get("metadata", {})
+    if metadata.get("source") != source or metadata.get("split") != split:
+        raise ValueError(f"expected {source} {split} manifest")
 
 
 def _link_directory(link_path: Path, target_path: Path) -> None:

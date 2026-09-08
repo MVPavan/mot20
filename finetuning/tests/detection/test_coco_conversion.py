@@ -2,18 +2,24 @@ import configparser
 import json
 import tempfile
 import unittest
+from collections import Counter
 from pathlib import Path
 
 from PIL import Image
 
 from mot20.detection.coco_conversion import (
     assemble_rfdetr_coco_dataset,
+    assemble_rfdetr_competition_dataset,
+    build_i4_competition_train_manifest,
+    build_i5_ablation_train_manifest,
     convert_crowdhuman_split,
     convert_mot20_split,
     merge_bytetrack_mot20_crowdhuman,
     merge_byte65_test_adapted_overlay,
+    repeat_coco_manifest,
     write_coco_manifest,
 )
+from mot20.detection.dataset_audit import audit_rfdetr_coco_dataset
 
 
 class Mot20CocoConversionTest(unittest.TestCase):
@@ -119,6 +125,107 @@ class ByteTrackMixerTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "expected MOT20 train_half"):
             merge_bytetrack_mot20_crowdhuman(mot20, crowdhuman_train, crowdhuman_val)
+
+
+class CocoManifestRepeatTest(unittest.TestCase):
+    def test_repeats_images_and_annotations_with_unique_ids_and_original_provenance(self) -> None:
+        manifest = _manifest("MOT20", "train_half", "MOT20-01/img1/000001.jpg")
+
+        repeated = repeat_coco_manifest(manifest, repeat_factor=4)
+
+        self.assertEqual([image["id"] for image in repeated["images"]], [1, 2, 3, 4])
+        self.assertEqual([annotation["id"] for annotation in repeated["annotations"]], [1, 2, 3, 4])
+        self.assertEqual([annotation["image_id"] for annotation in repeated["annotations"]], [1, 2, 3, 4])
+        self.assertEqual({image["source_manifest_image_id"] for image in repeated["images"]}, {1})
+        self.assertEqual({annotation["source_manifest_annotation_id"] for annotation in repeated["annotations"]}, {1})
+        self.assertEqual([image["oversample_repeat_index"] for image in repeated["images"]], [1, 2, 3, 4])
+
+
+class I5MixManifestTest(unittest.TestCase):
+    def test_arm_b_and_c_have_the_declared_mot20_image_ratios(self) -> None:
+        mot20 = _i5_manifest("MOT20", "train_half", "MOT20-01/img1/000001.jpg")
+        crowdhuman_train = _i5_manifest("CrowdHuman", "train", "train.jpg")
+        crowdhuman_val = _i5_manifest("CrowdHuman", "val", "val.jpg")
+        byte65 = _i5_manifest("Byte65", "test_adapted_overlay", "images/MOT20-06/000001.jpg")
+        byte65["metadata"]["human_audit"] = "exhaustive"
+
+        arm_b = build_i5_ablation_train_manifest("b", mot20, crowdhuman_train, crowdhuman_val, byte65)
+        arm_c = build_i5_ablation_train_manifest("c", mot20, crowdhuman_train, crowdhuman_val, byte65)
+
+        self.assertEqual(Counter(image["source_dataset"] for image in arm_b["images"]), {"MOT20": 4, "CrowdHuman": 2, "Byte65": 1})
+        self.assertEqual(Counter(image["source_dataset"] for image in arm_c["images"]), {"MOT20": 1, "Byte65": 1})
+        self.assertEqual(4 / len(arm_b["images"]), 4 / 7)
+        self.assertEqual(1 / len(arm_c["images"]), 1 / 2)
+        self.assertEqual(len({image["id"] for image in arm_b["images"]}), len(arm_b["images"]))
+        self.assertEqual(len({annotation["id"] for annotation in arm_b["annotations"]}), len(arm_b["annotations"]))
+        self.assertEqual(arm_b["metadata"]["intentional_oversampling"]["repeat_factor"], 4)
+        self.assertNotIn("intentional_oversampling", arm_c["metadata"])
+
+
+class I4CompetitionManifestTest(unittest.TestCase):
+    def test_merges_both_mot20_halves_and_uses_a_formal_empty_valid_manifest(self) -> None:
+        root = Path(tempfile.mkdtemp())
+        mot20_root = root / "mot20"
+        crowdhuman_train_root = root / "crowdhuman_train"
+        crowdhuman_val_root = root / "crowdhuman_val"
+        byte65_root = root / "byte65"
+        (mot20_root / "MOT20-01" / "img1").mkdir(parents=True)
+        crowdhuman_train_root.mkdir()
+        crowdhuman_val_root.mkdir()
+        (byte65_root / "images" / "MOT20-06").mkdir(parents=True)
+        Image.new("RGB", (100, 80)).save(mot20_root / "MOT20-01" / "img1" / "000001.jpg")
+        Image.new("RGB", (100, 80)).save(mot20_root / "MOT20-01" / "img1" / "000002.jpg")
+        Image.new("RGB", (100, 80)).save(crowdhuman_train_root / "train.jpg")
+        Image.new("RGB", (100, 80)).save(crowdhuman_val_root / "val.jpg")
+        Image.new("RGB", (100, 80)).save(byte65_root / "images" / "MOT20-06" / "000001.jpg")
+        mot20_train = _manifest("MOT20", "train_half", "MOT20-01/img1/000001.jpg")
+        mot20_val = _manifest("MOT20", "val_half", "MOT20-01/img1/000002.jpg")
+        crowdhuman_train = _manifest("CrowdHuman", "train", "train.jpg")
+        crowdhuman_val = _manifest("CrowdHuman", "val", "val.jpg")
+        byte65 = _manifest("Byte65", "test_adapted_overlay", "images/MOT20-06/000001.jpg")
+        byte65["metadata"]["human_audit"] = "exhaustive"
+
+        train_manifest = build_i4_competition_train_manifest(
+            mot20_train,
+            mot20_val,
+            crowdhuman_train,
+            crowdhuman_val,
+            byte65,
+        )
+        dataset_root = root / "competition"
+        assemble_rfdetr_competition_dataset(
+            dataset_root,
+            train_manifest,
+            {"mot20_train": mot20_root, "crowdhuman_train": crowdhuman_train_root,
+             "crowdhuman_val": crowdhuman_val_root, "byte65": byte65_root},
+        )
+
+        valid_manifest = json.loads((dataset_root / "valid" / "_annotations.coco.json").read_text(encoding="utf-8"))
+        audit = audit_rfdetr_coco_dataset(dataset_root)
+        self.assertEqual([image["id"] for image in train_manifest["images"]], [1, 2, 3, 4, 5])
+        self.assertEqual([annotation["id"] for annotation in train_manifest["annotations"]], [1, 2, 3, 4, 5])
+        self.assertEqual(
+            [image["source_manifest_image_id"] for image in train_manifest["images"][:2]], [1, 1]
+        )
+        self.assertEqual(
+            [annotation["source_manifest_annotation_id"] for annotation in train_manifest["annotations"][:2]], [1, 1]
+        )
+        self.assertEqual(
+            [image["file_name"] for image in train_manifest["images"][:2]],
+            ["mot20_train/MOT20-01/img1/000001.jpg", "mot20_train/MOT20-01/img1/000002.jpg"],
+        )
+        self.assertEqual(train_manifest["metadata"]["sources"], [
+            "mot20_train_half", "mot20_val_half", "crowdhuman_train", "crowdhuman_val", "byte65_human_audited"
+        ])
+        self.assertFalse(train_manifest["metadata"]["held_out_benchmark_comparable"])
+        self.assertEqual(valid_manifest["images"], [])
+        self.assertEqual(valid_manifest["annotations"], [])
+        self.assertEqual(valid_manifest["videos"], [])
+        self.assertTrue(valid_manifest["metadata"]["formal_empty_validation"])
+        self.assertEqual(audit["split_counts"], {
+            "train": {"images": 5, "annotations": 5},
+            "valid": {"images": 0, "annotations": 0},
+        })
 
 
 class RfDetrDatasetAssemblyTest(unittest.TestCase):
@@ -234,6 +341,13 @@ def _manifest(source: str, split: str, file_name: str) -> dict[str, object]:
         "categories": [{"id": 1, "name": "pedestrian"}],
         "metadata": {"source": source, "split": split},
     }
+
+
+def _i5_manifest(source: str, split: str, file_name: str) -> dict[str, object]:
+    manifest = _manifest(source, split, file_name)
+    manifest["images"][0]["source_dataset"] = source
+    manifest["images"][0]["split"] = split
+    return manifest
 
 
 def _write_seqinfo(sequence_root: Path, length: int, width: int, height: int) -> None:

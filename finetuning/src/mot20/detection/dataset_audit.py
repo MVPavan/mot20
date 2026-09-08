@@ -21,6 +21,7 @@ def audit_rfdetr_coco_dataset(dataset_root: Path, group_detr: int = 13) -> dict[
         split: _read_manifest(dataset_root / split / "_annotations.coco.json")
         for split in ("train", "valid")
     }
+    intentional_train_oversampling = _validate_intentional_train_oversampling(manifests["train"])
     split_audits = {
         split: _audit_split(dataset_root / split, manifest, split)
         for split, manifest in manifests.items()
@@ -56,6 +57,7 @@ def audit_rfdetr_coco_dataset(dataset_root: Path, group_detr: int = 13) -> dict[
         },
         "cross_split_duplicate_images": duplicate_images,
         "mot20_temporal_overlap": temporal_overlap,
+        "intentional_train_oversampling": intentional_train_oversampling,
     }
 
 
@@ -71,6 +73,80 @@ def _read_manifest(path: Path) -> dict[str, Any]:
     if not isinstance(manifest.get("images"), list) or not isinstance(manifest.get("annotations"), list):
         raise ValueError(f"COCO manifest requires image and annotation arrays: {path}")
     return manifest
+
+
+def _validate_intentional_train_oversampling(manifest: dict[str, Any]) -> dict[str, Any] | None:
+    """Reject repeated train entries unless an exact provenance contract declares them."""
+    images = manifest["images"]
+    file_name_groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for image in images:
+        file_name = image.get("file_name")
+        if not isinstance(file_name, str) or not file_name:
+            raise ValueError("train image has an invalid file_name")
+        file_name_groups[file_name].append(image)
+
+    declaration = manifest.get("metadata", {}).get("intentional_oversampling")
+    if declaration is None:
+        duplicates = sorted(file_name for file_name, group in file_name_groups.items() if len(group) > 1)
+        if duplicates:
+            raise ValueError(f"duplicate train image file_name without an oversampling declaration: {duplicates}")
+        return None
+    if not isinstance(declaration, dict):
+        raise ValueError("intentional_oversampling must be an object")
+    source_dataset = declaration.get("source_dataset")
+    source_split = declaration.get("source_split")
+    repeat_factor = declaration.get("repeat_factor")
+    if not isinstance(source_dataset, str) or not isinstance(source_split, str):
+        raise ValueError("intentional_oversampling requires string source_dataset and source_split")
+    if not isinstance(repeat_factor, int) or repeat_factor < 2:
+        raise ValueError("intentional_oversampling repeat_factor must be an integer of at least two")
+
+    identity_groups: dict[tuple[str, str, Any], list[dict[str, Any]]] = defaultdict(list)
+    for image in images:
+        identity = (
+            image.get("source_dataset"),
+            image.get("split"),
+            image.get("source_manifest_image_id"),
+        )
+        if any(value is None for value in identity):
+            raise ValueError("intentional_oversampling requires source provenance on every train image")
+        identity_groups[identity].append(image)
+
+    for file_name, group in file_name_groups.items():
+        if len(group) == 1:
+            continue
+        identities = {
+            (image["source_dataset"], image["split"], image["source_manifest_image_id"])
+            for image in group
+        }
+        if len(identities) != 1:
+            raise ValueError(f"duplicate train image file_name has inconsistent source provenance: {file_name}")
+        identity = next(iter(identities))
+        if identity[:2] != (source_dataset, source_split) or len(group) != repeat_factor:
+            raise ValueError(f"duplicate train image file_name is not the declared oversampling: {file_name}")
+
+    repeated_source_identities = 0
+    for identity, group in identity_groups.items():
+        is_declared_source = identity[:2] == (source_dataset, source_split)
+        if not is_declared_source:
+            if len(group) != 1 or "oversample_repeat_index" in group[0]:
+                raise ValueError(f"unexpected train oversampling for source identity {identity}")
+            continue
+        if len(group) != repeat_factor:
+            raise ValueError(f"declared train oversampling has {len(group)} copies for source identity {identity}")
+        file_names = {image["file_name"] for image in group}
+        repeat_indices = {image.get("oversample_repeat_index") for image in group}
+        if len(file_names) != 1 or repeat_indices != set(range(1, repeat_factor + 1)):
+            raise ValueError(f"declared train oversampling has invalid copies for source identity {identity}")
+        repeated_source_identities += 1
+
+    return {
+        "source_dataset": source_dataset,
+        "source_split": source_split,
+        "repeat_factor": repeat_factor,
+        "source_image_identities": repeated_source_identities,
+        "repeated_train_images": repeated_source_identities * repeat_factor,
+    }
 
 
 def _audit_split(split_root: Path, manifest: dict[str, Any], split: str) -> dict[str, Any]:

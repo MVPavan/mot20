@@ -64,6 +64,33 @@ class RfDetrCocoDatasetAuditTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "MOT20 temporal overlap"):
             audit_rfdetr_coco_dataset(root)
 
+    def test_accepts_only_the_declared_exact_train_oversampling(self) -> None:
+        root = Path(tempfile.mkdtemp())
+        train_image = _write_image(root / "train" / "mot20_train" / "MOT20-01" / "img1" / "000001.jpg", "red")
+        valid_image = _write_image(root / "valid" / "mot20_val" / "MOT20-01" / "img1" / "000002.jpg", "blue")
+        _write_manifest(
+            root / "train", [train_image] * 4, [(index, 0) for index in range(1, 5)], source_frame_id=1
+        )
+        _write_manifest(root / "valid", [valid_image], [(1, 0)], source_frame_id=2)
+        train_manifest_path = root / "train" / "_annotations.coco.json"
+        train_manifest = json.loads(train_manifest_path.read_text(encoding="utf-8"))
+        train_manifest["metadata"] = {
+            "intentional_oversampling": {
+                "source_dataset": "MOT20",
+                "source_split": "train_half",
+                "repeat_factor": 4,
+            }
+        }
+        for index, image in enumerate(train_manifest["images"], start=1):
+            image["split"] = "train_half"
+            image["source_manifest_image_id"] = 1
+            image["oversample_repeat_index"] = index
+        train_manifest_path.write_text(json.dumps(train_manifest), encoding="utf-8")
+
+        audit = audit_rfdetr_coco_dataset(root)
+
+        self.assertEqual(audit["intentional_train_oversampling"]["repeat_factor"], 4)
+
 
 def _write_image(path: Path, color: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)

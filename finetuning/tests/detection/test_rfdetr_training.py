@@ -4,7 +4,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from mot20.detection.rfdetr_training import load_training_config, validate_training_config
+from mot20.detection.rfdetr_training import (
+    DEFAULT_LONG_SIDE_CAP,
+    apply_long_side_cap,
+    load_training_config,
+    validate_training_config,
+)
 
 
 class RfDetrTrainingConfigTest(unittest.TestCase):
@@ -76,6 +81,39 @@ amp_dtype = \"bf16\"
         encoding="utf-8",
     )
     return path
+
+
+class LongSideCapTest(unittest.TestCase):
+    """The cap decides the effective input geometry, so training and detection
+    export must agree on it. Exporting a checkpoint at the wrong cap silently
+    produces detections from geometry the model never saw."""
+
+    def setUp(self) -> None:
+        try:
+            from rfdetr.datasets import coco as rfdetr_coco
+        except ImportError:  # pragma: no cover - only the training env has rfdetr
+            self.skipTest("rfdetr is not installed in this environment")
+        self.coco = rfdetr_coco
+        self.original = rfdetr_coco._COCO_MAX_SIZE
+        self.addCleanup(setattr, rfdetr_coco, "_COCO_MAX_SIZE", self.original)
+
+    def test_omitting_max_size_reports_the_library_default_without_mutating_it(self) -> None:
+        self.assertEqual(apply_long_side_cap(None), DEFAULT_LONG_SIDE_CAP)
+        self.assertEqual(self.coco._COCO_MAX_SIZE, self.original)
+
+    def test_the_recorded_default_still_matches_the_installed_library(self) -> None:
+        self.assertEqual(self.original, DEFAULT_LONG_SIDE_CAP)
+
+    def test_raising_the_cap_updates_the_module_global_the_transform_reads(self) -> None:
+        self.assertEqual(apply_long_side_cap(1600), 1600)
+        self.assertEqual(self.coco._COCO_MAX_SIZE, 1600)
+
+    def test_rejects_caps_that_are_not_positive_multiples_of_the_window_stride(self) -> None:
+        # True is an int subclass, and a bare isinstance check would accept it.
+        for bad in (0, -40, 1601, 1.0, True, "1600"):
+            with self.subTest(max_size=bad), self.assertRaises(ValueError):
+                apply_long_side_cap(bad)
+            self.assertEqual(self.coco._COCO_MAX_SIZE, self.original)
 
 
 def _audit(maximum: int) -> dict[str, object]:
