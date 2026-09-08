@@ -11,7 +11,7 @@ generated from stored artifacts by
 and is the authoritative source for values. Where the two ever disagree, the
 generated file is right and this one is stale. Task status lives in
 [`docs/tracker-improvements.md`](tracker-improvements.md) and
-[`docs/tracker-todo.md`](tracker-todo.md); contracts and artifact naming live in
+Beads (`bd ready`); contracts and artifact naming live in
 [`docs/tracker-experiments.md`](tracker-experiments.md).
 
 ## Read this first

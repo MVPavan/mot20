@@ -2,15 +2,16 @@
 
 Progress tracker for closing the gap between this repository's fine-tuned
 RF-DETR detector and the published ByteTrack YOLOX-X detector inside
-BoostTrack++. `bd` is not on `PATH`, so this file is the durable record,
-following the precedent of `docs/tracker-todo.md`.
+BoostTrack++.
 
-Evidence, contracts, and artifact paths live in `docs/tracker-experiments.md`.
-Phase-by-phase integration tasks live in `docs/tracker-todo.md`. This file
-tracks only the work that follows from the Phase 8b root-cause analysis. Update
-all three together.
+**Task status lives in Beads, not here.** Run `bd ready`, `bd list
+--status=in_progress`, or `bd list --status=open`; this file keeps the analysis
+and the measured evidence behind each item. `docs/tracker-todo.md` was deleted
+when tracking moved to Beads.
 
-Status legend: `[ ]` open, `[x]` done, `[~]` in progress, `[!]` blocked.
+Contracts and artifact paths live in `docs/tracker-experiments.md`; every metric
+is generated into `docs/results-reference.md`; the cross-detector comparison and
+its caveats are in `docs/experiment-report.md`.
 
 ## Where we are
 
@@ -61,22 +62,6 @@ TrackEval. Both detectors run through the same runner and evaluator.
 The deficit is detector box regression, not tracker integration. Everything
 reachable from the tracker side has been measured; see Phase 8b.
 
-## Plan at a Glance
-
-| ID | Item | Tier | GPU | Status |
-| --- | --- | --- | --- | --- |
-| I1 | Adopt greedy NMS at IoU 0.7 as the export default | 0 | no | Done |
-| I2 | Sweep the association hyperparameters never swept | 0 | no | Done — +0.21, gap unchanged |
-| I3 | Measure with `mot20_sbs_S50.pth` FastReID embeddings | 0 | inference | Done — +0.70 HOTA |
-| I4 | Add MOT20 `val_half` to training, ByteTrack parity | 1 | training | **Running since 2026-09-08 09:54** — arm-D recipe from base weights, 7 GPUs, 8 epochs, `rfdetr-2xl-i4-competition-2026-09-08-r1` |
-| I5 | Rebalance the CrowdHuman/MOT20 mix | 1 | training | **Done — hypothesis falsified.** All three arms complete; mix moves peak mAP by 1% relative and arm A stays best |
-| I6 | Raise the training long-side cap to 1600 | 1 | training | **Done — HOTA 70.777, first result to beat the 70.208 baseline.** Gain is association, not localization; LocA moved only +0.131 |
-| I7 | Fix the schedule and investigate why EMA lost | 1 | training | Open |
-| I8 | Check CrowdHuman's box convention against MOT20's | 1 | no | Open |
-
-Tier 0 needs no retraining and can run today. Tier 1 needs GPU time and a
-decision on evaluation integrity, recorded below.
-
 ## Evaluation integrity — read before starting I4
 
 **I4 removes the only held-out evaluation this repository has.** Once `val_half`
@@ -105,13 +90,11 @@ MOT20-test images and is therefore not leaderboard-comparable regardless.
 
 ### I1 — NMS at IoU 0.7 as the export default
 
-- [x] Sweep suppression IoU as derived variants: none / 0.7 / 0.6 / 0.5 gives
-      HOTA 68.18 / 68.81 / 68.51 / 66.08. 0.7 matches the `nmsthre` the
-      published YOLOX detections were produced with.
-- [x] Confirm the mechanism: RF-DETR emitted 33.2 duplicate pairs per frame at
-      IoU $\ge$ 0.75 in every one of 4,463 frames; after NMS at 0.7, zero.
-- [ ] Make NMS a first-class export option in `tracking/scripts/export_detections.py`
-      rather than a derived post-filter, so future exports carry it by default.
+- Sweep suppression IoU as derived variants: none / 0.7 / 0.6 / 0.5 gives
+  HOTA 68.18 / 68.81 / 68.51 / 66.08. 0.7 matches the `nmsthre` the
+  published YOLOX detections were produced with.
+- Confirm the mechanism: RF-DETR emitted 33.2 duplicate pairs per frame at
+  IoU $\ge$ 0.75 in every one of 4,463 frames; after NMS at 0.7, zero.
 
 ### I2 — Association hyperparameter sweep
 
@@ -119,9 +102,9 @@ Before this, only `det_thresh` had been swept. The rest were left at values
 upstream tuned for a YOLOX score distribution and box-tightness profile, which
 RF-DETR matches on neither count.
 
-- [x] Swept 19 points across two rounds, every one recorded in the L3/L4 store
-      under its own tracker slug, with the human-readable overrides preserved in
-      the L3 manifest.
+- Swept 19 points across two rounds, every one recorded in the L3/L4 store
+  under its own tracker slug, with the human-readable overrides preserved in
+  the L3 manifest.
 
 Best per detector, both on `fastreid-sbs-s50-mot20`:
 
@@ -169,13 +152,13 @@ here must be checked against the other detector before it is believed.
 Acquired and verified in Phase 0, promoted to verified-working in Phase 1, and
 never used in an experiment. This is the ReID model BoostTrack++ publishes with.
 
-- [x] Export L2 embeddings for the best RF-DETR variant and for `yoloxx20`, so
-      the detector comparison stays controlled.
-- [x] Track and evaluate both.
-- [x] Label the result. `mot20_sbs_S50.pth` is MOT20-trained, so on `val_half`
-      it has already seen these identities. Absolute numbers are not held out;
-      the detector-to-detector delta remains meaningful because both sides use
-      it.
+- Export L2 embeddings for the best RF-DETR variant and for `yoloxx20`, so
+  the detector comparison stays controlled.
+- Track and evaluate both.
+- Label the result. `mot20_sbs_S50.pth` is MOT20-trained, so on `val_half`
+  it has already seen these identities. Absolute numbers are not held out;
+  the detector-to-detector delta remains meaningful because both sides use
+  it.
 
 Result. FastReID helps both detectors and helps RF-DETR roughly twice as much,
 narrowing the gap from 1.40 to 1.04 HOTA:
@@ -229,19 +212,6 @@ it back is ByteTrack parity and nearly doubles MOT20's share of the mix.
 | MOT20 images | 4,489 (18.8%) | 8,952 (31.6%) |
 | Total | 23,859 | 28,322 |
 
-- [ ] Read the evaluation-integrity section above and produce the **competition**
-      build as a new immutable dataset root, leaving the existing root untouched.
-      `assemble_byte65_test_adapted_baseline.py` already refuses to overwrite.
-- [ ] The change is scoped to the split assembly: `mot20_val_half` currently
-      becomes the `valid` split via `assemble_rfdetr_coco_dataset`, and must
-      instead be merged into the train manifest alongside `mot20_train_half`.
-      Decide what the `valid` split contains, since RF-DETR's training loop
-      requires one.
-- [ ] Preserve `source-manifests/`, `audit.json`, and `checksums.json` so the
-      new build has the same provenance guarantees as the existing one.
-- [ ] Keep `classification = local_test_adapted` and
-      `held_out_benchmark_comparable = false`.
-
 Note this also partially addresses I5, since it lifts MOT20 from 18.8% to 31.6%
 of training images. The two should not be run as one experiment without an
 ablation, or neither effect can be attributed.
@@ -293,18 +263,14 @@ This raises the prior on I6 (resolution), which is the one cause with direct
 measured support: localization, not recall, is what separates this detector from
 the baseline, and the cap binds before the resolution target.
 
-- [x] Oversampling mechanism for arm B: manifest duplication, declared via
-      `intentional_oversampling` metadata so the audit accepts the duplicate
-      `file_name`s instead of rejecting them as an accident.
-- [x] Peak epochs recorded above. Note these are absurdly early — arm B peaks at
-      epoch 1 of 30 — so a fixed-epoch competition build should use single-digit
-      epochs, not the 30–50 originally budgeted.
-- [ ] Carrying an arm through to HOTA is deferred: no arm beat arm A on mAP, so
-      there is no candidate that would plausibly beat its HOTA 68.81.
-- [ ] Carry the winning arm through the full chain — export, NMS at 0.7,
-      embeddings, tracking, TrackEval — so the comparison is HOTA, not just mAP.
-      The two disagreed about NMS already, so mAP alone is not sufficient
-      evidence.
+- Oversampling mechanism for arm B: manifest duplication, declared via
+  `intentional_oversampling` metadata so the audit accepts the duplicate
+  `file_name`s instead of rejecting them as an accident.
+- Peak epochs recorded above. Note these are absurdly early — arm B peaks at
+  epoch 1 of 30 — so a fixed-epoch competition build should use single-digit
+  epochs, not the 30–50 originally budgeted.
+- Carrying an arm through to HOTA is deferred: no arm beat arm A on mAP, so
+  there is no candidate that would plausibly beat its HOTA 68.81.
 
 ### I6 — Raise the training long-side cap
 
@@ -314,13 +280,13 @@ YOLOX-X runs at `test_size = (896, 1600)`, a scale of 0.830, and therefore sees
 every pedestrian about 20% larger. Measured edge residuals are 1.27–1.46× the
 baseline's.
 
-- [x] `max_size = 1600` puts MOT20 at 0.833, matching the baseline exactly, for
-      about 1.44× the pixels. Run as arm D, `rfdetr-2xl-i5-armd-2026-09-07-r1`,
-      on the arm-A mix so resolution is the only variable against arm A.
-      Micro-batch 4 with `grad_accum_steps = 2` keeps the effective batch at 64:
-      arm B measured 21 GB of 24 GB at the 1333 cap, so 1.44× the tokens does
-      not fit at micro-batch 8. Measured 14 GB per card at micro-batch 4.
-      Completed 2026-09-08 05:39, 27,795s, 30 epochs, peak 0.6282 at epoch 9.
+- `max_size = 1600` puts MOT20 at 0.833, matching the baseline exactly, for
+  about 1.44× the pixels. Run as arm D, `rfdetr-2xl-i5-armd-2026-09-07-r1`,
+  on the arm-A mix so resolution is the only variable against arm A.
+  Micro-batch 4 with `grad_accum_steps = 2` keeps the effective batch at 64:
+  arm B measured 21 GB of 24 GB at the 1333 cap, so 1.44× the tokens does
+  not fit at micro-batch 8. Measured 14 GB per card at micro-batch 4.
+  Completed 2026-09-08 05:39, 27,795s, 30 epochs, peak 0.6282 at epoch 9.
 
 **Result: I6 works, but not by the mechanism it was proposed for.** Carried
 through the full chain to HOTA, held-out OSNet ReID, `btpp-default`:
@@ -356,25 +322,21 @@ to the baseline. It is simply no longer the binding constraint on HOTA. Precisio
 remains the other weakness: DetPr 82.300 versus 87.688, and 21,242 false
 positives versus 6,947.
 
-- [ ] Repeat with `fastreid-sbs-s50-mot20` to compare against the published-ReID
-      column, remembering that checkpoint is not held out.
-- [ ] Localization is now the clearest remaining target, but resolution is not
-      the lever. Reconsider I8 (CrowdHuman box convention) and the regression
-      loss weighting before spending another run on pixels.
-- [ ] `max_size = 1920` gives native scale at about 2.1× the pixels and will
-      likely need `batch_size = 4` with gradient checkpointing already on.
-- [ ] Do not attempt this at inference only. Probes at caps 1600 and 1920 leave
-      recall flat, 0.9134 → 0.9138 → 0.9167, while $mAP_{75}$ falls 0.7400 →
-      0.5943 → 0.6890. The model only regresses boxes well at its trained
-      geometry.
+- Localization is now the clearest remaining target, but resolution is not
+  the lever. Reconsider I8 (CrowdHuman box convention) and the regression
+  loss weighting before spending another run on pixels.
+- Do not attempt this at inference only. Probes at caps 1600 and 1920 leave
+  recall flat, 0.9134 → 0.9138 → 0.9167, while $mAP_{75}$ falls 0.7400 →
+  0.5943 → 0.6890. The model only regresses boxes well at its trained
+  geometry.
 
 ### I7 — Training schedule and EMA
 
-- [ ] `lr_scheduler = "step"` with `lr_drop = 40` never fired usefully, because
-      the model peaked at epoch 5. Reconsider the schedule length and shape once
-      the mix is fixed; a shorter cosine run is the obvious candidate.
-- [ ] `use_ema = true`, yet the selected checkpoint came from the regular
-      branch, not the EMA branch. Determine whether EMA was actually updating.
+- `lr_scheduler = "step"` with `lr_drop = 40` never fired usefully, because
+  the model peaked at epoch 5. Reconsider the schedule length and shape once
+  the mix is fixed; a shorter cosine run is the obvious candidate.
+- `use_ema = true`, yet the selected checkpoint came from the regular
+  branch, not the EMA branch. Determine whether EMA was actually updating.
 
 ### I8 — CrowdHuman box convention
 
@@ -382,12 +344,6 @@ Phase 8b proved the **validation** labels are byte-identical to MOT20 `gt.txt`,
 mean IoU 0.9995. It did not check the **training** labels, and CrowdHuman is 81%
 of them. CrowdHuman full-body boxes are amodal annotator estimates of occluded
 extent, produced by a different process than MOT20's.
-
-- [ ] Compare CrowdHuman box statistics against MOT20's on a normalised basis:
-      aspect ratio, visible-to-full ratio, and how each treats truncation at the
-      image border.
-- [ ] If the conventions differ systematically, that is a second mechanism for
-      the localization jitter and it changes what I5 should look like.
 
 ## Decisions taken
 

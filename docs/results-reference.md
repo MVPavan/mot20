@@ -5,7 +5,7 @@ Generated 2026-09-08 by `tracking/scripts/build_results_reference.py`.
 CSV, or annotation file. Re-run the generator after any new experiment.
 
 Interpretation and root-cause analysis live in `docs/tracker-experiments.md`.
-Task status lives in `docs/tracker-improvements.md` and `docs/tracker-todo.md`.
+Task status lives in Beads (`bd ready`, `bd list --status=open`).
 This file is numbers only.
 
 ## Scope and caveats

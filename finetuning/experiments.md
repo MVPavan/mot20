@@ -175,51 +175,15 @@ Note this build also lifts MOT20 from 18.8% to 31.6% of training images, so it
 partially confounds I5. The two effects cannot be attributed separately from this
 run alone.
 
-## Pending Experiment Queue
+## Pending Work
 
-Status as of 2026-09-08. Interpretation and the reasoning behind each item live
-in `docs/tracker-improvements.md`; this is the schedulable list.
+**Tracked in Beads, not here.** Run `bd ready` for available work,
+`bd list --status=in_progress` for active runs, and `bd list --status=open` for
+everything planned. Epic `RF-DETR 2XL detector training` holds the training
+arms; `Evaluation, comparison, and root-cause analysis` holds the measurement
+work.
 
-### No GPU required
-
-| Item | Question it answers | Why it is worth running |
-| --- | --- | --- |
-| **I8** — CrowdHuman vs MOT20 box convention | Is part of the 2.856 LocA gap an annotation-convention mismatch rather than regression noise? | Phase 8b proved the *validation* labels are byte-identical to `gt.txt`, mean IoU 0.9995, but never checked the *training* labels, and CrowdHuman is 81% of them. CrowdHuman full-body boxes are amodal annotator estimates produced by a different process. Cheapest experiment with a live hypothesis, aimed at the largest remaining gap. |
-| **I7b** — did EMA update? | Why `use_ema = true` yet arm A promoted the regular branch | Partly answered already: arm D promoted `best_total_source = ema` at 0.6282 against regular's 0.6243, so EMA was updating. Open question is why arm A went the other way. |
-| NMS as a first-class export option | — | Engineering, not an experiment. NMS at IoU 0.70 is a derived post-filter today; it should be an export-time option so future exports carry it by default. |
-
-### Inference GPU, hours
-
-| Item | Question it answers |
-| --- | --- |
-| **Arm D + FastReID** | The one missing cell in the results grid. Needed to compare against the published-ReID column; that checkpoint is not held out. |
-| **Arms B and C carried through to HOTA** | Whether the mix arms were discarded on the wrong metric. Deferred because neither beat arm A on mAP, but $mAP$ and HOTA have already disagreed once: NMS at IoU 0.70 *lowers* $mAP_{50:95}$ 0.6337 -> 0.6297 while *raising* HOTA 68.175 -> 68.809. Both checkpoints exist. |
-| **Export arm C's detections and count duplicates** | Whether CrowdHuman's sparsity causes the set-prediction failure. Arms A and D both emit ~32 duplicate pairs per frame in 100% of frames, and both are 81% CrowdHuman. Arm C saw no CrowdHuman at all, so its duplicate rate settles the hypothesis. Currently **untested**: arm C's detections were never exported. Export only, no tracking needed. See `docs/experiment-report.md` section 2.3. |
-| **Arm D export sweep** | `det_thresh` and NMS IoU were tuned on arm A. Arm D's recall profile changed, so its optimum may have moved. |
-| **Arm D association sweep** | 21 configurations were swept on arm A only, worth +0.21 there. Low expected value. |
-
-### Training GPU, roughly eight hours each
-
-| Item | Question it answers |
-| --- | --- |
-| **I7a** — schedule | Every arm peaks in single-digit epochs then decays monotonically; arm A lost 0.037 $mAP$ over its last 45 epochs. A short cosine run is the obvious candidate and is the cheapest training experiment, because it is short by construction. |
-| **Box-regression loss weighting** | Follows directly from arm D: resolution moved LocA by 0.131, so pixels are not the lever. This targets localization directly. |
-| **I4 competition build** | ByteTrack parity. Dataset is built; see the section above for the sequencing constraint. |
-| **`max_size = 1920`** | Native scale at roughly 2.1x the pixels. Arm D's evidence says expect little. |
-
-### Phase 9 — MOT20 `test`
-
-Recorded as blocked on a decision rather than on missing work. **The premise of
-that block no longer holds**: it was written when the best RF-DETR configuration
-reached HOTA 68.81 against the baseline's 70.21. Arm D now leads at 70.777, and
-that margin is a lower bound because the baseline trained on `val_half`
-(`docs/experiment-report.md`, section 0). Worth re-deciding.
-
-- Fix `main.py`'s discarded `args.result_folder.replace("-val", "-test")`
-  **before** any test run, or test tracks overwrite validation results.
-- Produce tracks for MOT20-04, -06, -07, -08. No local ground truth exists, so
-  this stage produces tracks, not scores.
-- Decide the ReID model: `fastreid-sbs-s50-mot20` is BoostTrack++ as published
-  and stronger; generic OSNet keeps the detector comparison controlled across
-  both stages.
-- Label all outputs `local_test_adapted` per `docs/MOTPolicy.md`.
+This file keeps the receipts: what each run was, what it measured, and where its
+artifacts live. `docs/results-reference.md` is authoritative for every number and
+is generated, never hand-edited. `docs/experiment-report.md` carries the
+cross-detector comparison and its caveats.

@@ -171,7 +171,7 @@ def build() -> str:
     add("CSV, or annotation file. Re-run the generator after any new experiment.")
     add("")
     add("Interpretation and root-cause analysis live in `docs/tracker-experiments.md`.")
-    add("Task status lives in `docs/tracker-improvements.md` and `docs/tracker-todo.md`.")
+    add("Task status lives in Beads (`bd ready`, `bd list --status=open`).")
     add("This file is numbers only.")
     add("")
     add("## Scope and caveats")

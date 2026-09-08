@@ -374,6 +374,33 @@ with the baseline, so the extra output is close to correct in volume.
 | Classification | `local_test_adapted`. The detector's training mix contains 21 manually audited Byte65 MOT20-test images, and `mot20_sbs_S50.pth` is MOT20-trained. Results are local deployment-development evidence and must not be presented as held-out or leaderboard-comparable, per `docs/MOTPolicy.md` |
 | Metrics | None available locally; MOT20 test ground truth is not in this repository. This stage produces tracks, not scores |
 
+## Runbook: evaluating a finished detector arm
+
+Moved here from `docs/tracker-todo.md` when task tracking migrated to Beads.
+Task *status* lives in Beads; this is a procedure, so it stays in the docs.
+
+Not scripted on purpose — each step writes a separate inspectable artifact, and a
+chained script has never been run end to end. Run from the repo root, in the
+container. Substitute the arm's run dir, its peak `val/mAP_50_95` from
+`docs/results-reference.md`, and a variant slug such as `rfdetr2xl-armb-e1`.
+
+1. `export_detections.py` under `.venv` at `--threshold 0.05`, passing
+   `--expected-map <peak>`. The reported mAP is a checksum: a mismatch means the
+   export did not reproduce training geometry and no detections are written.
+2. `derive_filtered_variant.py` under `.venv-tracking` with `--min-score 0.10
+   --nms-iou 0.70`. Do not export pre-filtered: BoostTrack boosts low-confidence
+   detections that match existing tracks *before* applying its own cut.
+3. `export_embeddings.py`, then `run_boosttrack.py --tracker btpp-default`, then
+   `evaluate_tracks.py`, all under `.venv-tracking`.
+4. `build_results_reference.py` to refresh `docs/results-reference.md`.
+
+Each arm must be exported with **its own config**, so that `model.max_size` is
+applied. `apply_long_side_cap` is shared by the trainer and the exporter for
+this reason: a checkpoint trained at a raised cap and exported at the library
+default would run at geometry the model never saw, and would record provenance
+claiming the default as though it were intended. Covered by `LongSideCapTest` in
+`finetuning/tests/detection/test_rfdetr_training.py`.
+
 ## Open Items
 
 - Tracking environment. There is no conda on this machine, so the upstream
