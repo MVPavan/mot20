@@ -233,8 +233,12 @@ Two regime mismatches follow. The scale regimes differ by 1.6×, so box
 regression is learned predominantly at one effective object scale and applied at
 another. The density regimes differ by 5×, and Hungarian matching operates per
 image, so 81% of optimisation steps specialise queries for a sparsity MOT20 does
-not have. The 33.2 duplicate pairs per frame are the visible consequence:
-one-to-one matching did not converge at MOT20 density.
+not have. The 33.2 overlapping pairs per frame are the visible consequence:
+one-to-one matching is not producing duplicate-free output. Note this paragraph
+states the sparsity hypothesis, and it remains **untested** — density and
+training-mix sparsity are confounded in every arm measured so far, and arm C's
+detections would separate them. See `docs/experiment-report.md` §2.3 and Beads
+`mot-0p4`.
 
 Selected as the first Tier 1 experiment. Three arms, single-variable, all on the
 **ablation** build so `val_half` stays a valid yardstick, and all from the same

@@ -9,14 +9,15 @@ reproduced from [`docs/results-reference.md`](results-reference.md), which is
 generated from stored artifacts by
 [`tracking/scripts/build_results_reference.py`](../tracking/scripts/build_results_reference.py)
 and is the authoritative source for values. Where the two ever disagree, the
-generated file is right and this one is stale. Task status lives in
-[`docs/tracker-improvements.md`](tracker-improvements.md) and
-Beads (`bd ready`); contracts and artifact naming live in
-[`docs/tracker-experiments.md`](tracker-experiments.md).
+generated file is right and this one is stale. Task status lives in Beads
+(`bd ready`, `bd list --status=open`) and nowhere else;
+[`docs/tracker-improvements.md`](tracker-improvements.md) holds the analysis
+behind the detector-gap work but no longer owns status. Contracts and artifact
+naming live in [`docs/tracker-experiments.md`](tracker-experiments.md).
 
 ## Read this first
 
-Three caveats bound everything below.
+Four caveats bound everything below.
 
 1. **Nothing here is leaderboard-comparable.** All work is classified
    `local_test_adapted` per [`docs/MOTPolicy.md`](MOTPolicy.md): the detector's
@@ -82,13 +83,23 @@ identity rests on the dataset README's own labelling and BoostTrack's
 configuration mapping, not on a checksum of the checkpoint. The frame overlap,
 by contrast, is verified byte-for-byte.
 
-**Consequence for every comparison below.** The RF-DETR-vs-YOLOX deltas are
-measured against an advantaged opponent, so they are *lower bounds*. Arm D's
-HOTA +0.569 is a win over a detector that had the answers; the held-out margin
-should be larger, by an amount nothing here measures.
+**Consequence for every comparison below.** Every RF-DETR-vs-YOLOX delta is
+measured against an opponent that trained on the evaluation frames. Arm D's HOTA
++0.569 is therefore a win over a detector that had the answers.
 
-The RF-DETR-vs-RF-DETR comparisons are unaffected — arms A–D share byte-identical
-train and valid manifests, so §1.1, §2.2 and every arm-to-arm delta are clean.
+Be careful about how much that licenses. It does **not** license calling the
+deltas lower bounds. Training on the evaluated frames is expected to inflate the
+baseline's scores, and the measurements have that shape (§0 above), but no
+experiment here establishes that a cleanly-trained YOLOX-X would score lower,
+nor by how much. A clean YOLOX-X differs from this one in training data *volume*
+as well as overlap, and those pull in opposite directions. The honest statement
+is that the comparison is not held out on the baseline side and the bias is
+unquantified — direction expected, magnitude unknown, neither measured.
+
+The RF-DETR-vs-RF-DETR comparisons are the clean ones. All four arms share a
+byte-identical `valid` manifest, so every arm-to-arm delta is measured on exactly
+the same held-out frames. Their *train* manifests deliberately differ — that is
+what arms B and C vary — so §1.1 compares training mixes, not identical data.
 
 **No clean external baseline is available, by decision.** `det_yoloxx17`
 detections sit unregistered at `datasets/val_half/<seq>/det_yoloxx17/` and are
@@ -121,8 +132,11 @@ arm D changes only the input geometry.
 
 Two facts about this table matter more than the peaks themselves.
 
-**Every arm peaks absurdly early and then declines monotonically.** Arm B peaks
-at epoch 1 of 30. Whatever causes the decline survives removing CrowdHuman
+**Every arm peaks absurdly early and never recovers that peak.** Arm B peaks at
+epoch 1 of 30. The decline is a trend, not a monotone one — arm A rebounds at
+epochs 7, 14, 17 and 22, and arm D's regular curve rebounds from 0.6233 at epoch
+11 to 0.6243 at epoch 13 — but no arm reattains its peak in the epochs that
+follow it. Whatever causes the decline survives removing CrowdHuman
 entirely (arm C), so it is not the training mix. A fixed-epoch competition build
 should budget single-digit epochs, not the 30–50 originally planned.
 
@@ -159,10 +173,12 @@ at the geometry it was trained at.
 | `rfdetr2xl-armd-e9-t010-nms070` | arm D, threshold 0.10 then greedy NMS at IoU 0.70 |
 
 RF-DETR is a set-prediction model and exports without NMS by design. That turned
-out to be wrong for this data: at MOT20 density one-to-one matching does not
-converge, and the raw export carries **33.2 duplicate pairs per frame at
-IoU ≥ 0.75, in every one of the 4,463 frames**. Greedy NMS at IoU 0.70 removes
-all of them and is the export default.
+out to be wrong for this data: the raw export carries **33.2 overlapping pairs
+per frame at IoU ≥ 0.75, in every one of the 4,463 frames**, against a
+ground-truth person-on-person overlap rate of 0.585, so the great majority are
+duplicate predictions rather than real crowding. Greedy NMS at IoU 0.70 removes
+them and is the export default. Why one-to-one matching fails here is analysed
+in §2.3; the cause is not settled.
 
 ## 2. Detection matrix
 
@@ -231,7 +247,7 @@ the like-for-like measurement of what the geometry change bought.
 mAP@75 improved most, which is exactly what a resolution fix should do. Hold on
 to that: §4 shows it did **not** translate into tracking-time localization.
 
-### 2.3 Set prediction does not converge at MOT20 density
+### 2.3 Set prediction does not produce duplicate-free output on this data
 
 This is the finding with the widest implications, so it is stated once here in
 full rather than left scattered across the tables above.
@@ -242,26 +258,57 @@ one query, so at convergence the model emits one box per object and duplicate
 suppression is unnecessary. That is the architecture's selling point, and RF-DETR
 exports without NMS because of it.
 
-**What was measured.** On `val_half`, raw exports before any suppression:
+**What was measured.** On `val_half`, exports at score ≥ 0.05 before any
+suppression:
 
 | | arm A `-t005` | arm D `-t005` | `yoloxx20` |
 | --- | ---: | ---: | ---: |
-| Duplicate pairs per frame at IoU ≥ 0.75 | 33.219 | 31.400 | 0.000 |
-| Frames containing at least one duplicate | **4,463 of 4,463** | **4,463 of 4,463** | 0 |
+| Overlapping pairs per frame at IoU ≥ 0.75 | 33.219 | 31.400 | 0.000 |
+| Frames containing at least one | **4,463 of 4,463** | **4,463 of 4,463** | 0 |
 | Boxes per frame, mean | 283.54 | 282.74 | 130.04 |
 | Boxes per frame, max (cap is `num_select = 390`) | 386 | 383 | 213 |
 | `val/cardinality_error` | 7.8443 | 7.3798 | — |
+
+**What that row does and does not count.**
+[`analyze_detections.py`](../tracking/scripts/analyze_detections.py) counts every
+*pair of predictions* over the IoU threshold. It never matches them to ground
+truth, so two boxes on two genuinely overlapping people are counted the same as
+two boxes stacked on one person. In a crowd dataset that confound is real, so it
+was measured rather than assumed —
+[`analyze_gt_overlap.py`](../tracking/scripts/analyze_gt_overlap.py) applies the
+identical rule to `gt.txt`, where every box is by construction a distinct person:
+
+| | GT (`gt.txt`) | arm A `-t005` |
+| --- | ---: | ---: |
+| Pairs per frame at IoU ≥ 0.75 | 0.585 | 33.219 |
+| Frames containing one | 1,877 (42.06%) | 4,463 (100%) |
+
+Real person-on-person overlap at this threshold exists and is not negligible: it
+occurs in 42% of frames, and the highest GT-to-GT IoU in the split is 0.983. But
+it accounts for 0.585 pairs per frame against 33.219 observed — under 2%. The
+remaining ~32.6 pairs per frame are not explainable by crowding in the labels.
+The two caveats that survive: the count is taken at score ≥ 0.05, which is a
+permissive export rather than the raw query set, and the 386-box maximum is
+likewise post-threshold, so it is close to but not proof of query saturation.
 
 Ground truth averages 137.8 instances per image and peaks at 220. The detector is
 emitting roughly twice that, in every frame, and in the densest frames it comes
 within 4 boxes of its own 390-query ceiling.
 
-**Why: density.** COCO val2017 averages about 7 instances per image. MOT20 is
-about 19× denser. One-to-one matching is a per-image assignment problem, and its
-difficulty scales with the number of objects competing for queries. At 137.8
-mean instances the assignment does not converge to a clean one-to-one solution,
-so the model hedges by placing several queries on the same person. The
-`cardinality_error` of 7.84 is the model's own count of how far off it is.
+**The leading hypothesis: density.** COCO val2017 averages about 7 instances per
+image. MOT20 is about 19× denser. One-to-one matching is a per-image assignment
+problem, and its difficulty scales with the number of objects competing for
+queries. At 137.8 mean instances the assignment plausibly fails to converge to a
+clean one-to-one solution, so the model hedges by placing several queries on the
+same person. The `cardinality_error` of 7.84 is the model's own count of how far
+off it is.
+
+State that as a hypothesis, because this document cannot close it. What is
+established is the *phenomenon*: a set-prediction detector emitting ~32.6
+unexplained overlapping pairs per frame in 100% of frames, which NMS removes for
++0.63 HOTA. What is not established is that MOT20's density is the *cause*
+rather than a correlate — the discriminating experiment is below, and it has not
+been run.
 
 **What has been ruled out.** Resolution. Arm D runs at 1.44× the pixels with the
 effective scale matched to the baseline's 0.830, and its duplicate rate is 31.4
@@ -281,18 +328,19 @@ about duplicates. Both arms measured above are CrowdHuman-heavy.
 duplicate and is worth **+0.63 HOTA**. The suppression IoU matters: none / 0.70 /
 0.60 / 0.50 gives HOTA 68.18 / 68.81 / 68.51 / 66.08.
 
-**The cost.** RF-DETR paid set prediction's price — a per-image assignment that
-scales badly with density, and a hard `num_select` ceiling that the data nearly
+**The cost.** RF-DETR paid set prediction's price — a per-image assignment
+problem to solve, and a hard `num_select` ceiling that the data nearly
 saturates — without collecting its benefit, which is duplicate-free output. On
 this data the architecture's distinguishing mechanism is not merely inactive; it
 is producing input that is *harder* for the tracker than a conventional detector
 would, since each duplicate pair is another chance for association to bind an
 identity to the wrong box.
 
-**And mAP would never have found this.** NMS *lowers* mAP@50:95 (0.6369 → 0.6297
-for arm A) while *raising* HOTA. COCO AP tolerates extra low-ranked duplicates
-that a tracker must resolve into identities. Optimising the detector on AP alone
-would have kept the worse setting.
+**And mAP would never have found this.** Holding the score threshold fixed and
+changing only suppression, NMS *lowers* arm A's mAP@50:95 (0.6337 at `-t010` →
+0.6297 at `-t010-nms070`) while *raising* HOTA. COCO AP tolerates extra
+low-ranked duplicates that a tracker must resolve into identities. Optimising
+the detector on AP alone would have kept the worse setting.
 
 ## 3. Localization matrix
 
@@ -364,9 +412,11 @@ Arm D is the first configuration in this project to beat the baseline on HOTA:
 long-side cap.
 
 The +1.968 over arm A is a clean, controlled delta — identical data, identical
-tracker, one variable. The +0.569 over YOLOX is a **lower bound**: per §0, that
-baseline trained on these frames. Its LocA 88.177 and DetPr 87.688 are the two
-columns most likely inflated by having seen the boxes.
+tracker, one variable. The +0.569 over YOLOX is **not held out on the baseline
+side**: per §0, that baseline trained on these frames. Its LocA 88.177 and DetPr
+87.688 are the two columns most likely inflated by having seen the boxes, so the
+expectation is that the +0.569 understates arm D — but that is an expectation,
+not a measurement, and nothing here bounds its size.
 
 ### 4.2 The components, decomposed
 
@@ -490,11 +540,12 @@ the right call, but it is an assumption that was never tested.
 
 ## 6. Conclusions
 
-**0. Every RF-DETR-vs-YOLOX number here understates RF-DETR.** The baseline
-trained on the evaluation frames (§0); the RF-DETR arms did not. Read the
-cross-detector deltas as lower bounds and the arm-to-arm deltas as exact. MOT17
-is out of scope, so no clean external baseline is available and this caveat is
-permanent rather than pending.
+**0. No RF-DETR-vs-YOLOX number here is a held-out comparison.** The baseline
+trained on the evaluation frames (§0); the RF-DETR arms did not. The bias is
+expected to favour the baseline but its size is unmeasured, so read the
+cross-detector deltas as indicative-with-a-caveat, not as bounds in either
+direction. The arm-to-arm deltas are exact. MOT17 is out of scope, so no clean
+external baseline is available and this caveat is permanent rather than pending.
 
 **1. The best configuration is arm D, and it beats the baseline even so.** HOTA
 70.777 against 70.208, with held-out ReID and identical tracker settings on both
@@ -522,15 +573,19 @@ metrics, not twelve findings.
 there is no convention offset to correct, and it is not introduced by the
 tracker. Arm D shows the obvious lever has been pulled and yielded 0.131.
 
-**6. Set prediction without NMS is wrong for MOT20 density.** 33.2 duplicate
-pairs per frame, in 4,463 of 4,463 frames, and arm D's 1.44× resolution barely
-moved it (31.4, still every frame). One-to-one Hungarian matching does not
-converge at 137.8 instances per image, about 19× COCO's density. Whether
-CrowdHuman's sparsity is the cause remains **untested** — that needs arm C's
-detections exported, which has never been done. See §2.3.
+**6. Set prediction without NMS is wrong for this data, for reasons not yet
+pinned down.** 33.2 overlapping pairs per frame, in 4,463 of 4,463 frames,
+against a ground-truth overlap rate of 0.585 — so ~32.6 per frame are not real
+crowding. Arm D's 1.44× resolution barely moved it (31.4, still every frame), so
+it is not a resolution artifact. Density at 137.8 instances per image, ~19×
+COCO's, is the leading explanation but remains a **hypothesis**: whether MOT20's
+density or CrowdHuman's sparsity drives it is **untested**, and settling it needs
+arm C's detections exported, which has never been done. What is not in doubt is
+the remedy — NMS at IoU 0.70 is worth +0.63 HOTA. See §2.3.
 
 **7. The training schedule is broken and remains unexplained.** Every arm peaks
-in single-digit epochs and declines monotonically for the rest of the run. Arm A
+in single-digit epochs and never recovers that peak, declining on trend with
+local rebounds for the rest of the run. Arm A
 lost 0.037 mAP over its last 45 epochs (0.6202 at epoch 5 → 0.5832 at epoch 49). This is compute being spent to make the
 model worse, on all four arms, and no hypothesis has been tested yet.
 
@@ -547,7 +602,9 @@ model worse, on all four arms, and no hypothesis has been tested yet.
   pixels but arm D's evidence says to expect little.
 - **I7: why every arm peaks early and decays.** Currently the largest unexplained
   effect in the project, and the cheapest to exploit if understood.
-- **I4: MOT20 `val_half` folded into training** for ByteTrack parity. The build
-  exists (28,322 images, deliberately empty `valid` split). Once run, `val_half`
-  stops being a valid yardstick, so all comparative work should finish first.
+- **I4: MOT20 `val_half` folded into training** for ByteTrack parity. **Running
+  since 2026-09-08** on 7 GPUs (28,322 images, deliberately empty `valid` split);
+  see `finetuning/experiments.md`. `val_half` remains a valid yardstick for arms
+  A–D, whose weights are unaffected — it is invalid only for models trained on
+  this build, so the I4 run does not block comparative work on the existing arms.
 - **Phase 9: MOT20 `test`.** Not started.

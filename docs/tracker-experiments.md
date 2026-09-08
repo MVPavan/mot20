@@ -5,10 +5,17 @@ repository's own RF-DETR detector in place of the published YOLOX detector.
 Detector fine-tuning experiments are indexed separately in
 `finetuning/experiments.md`.
 
-**No tracking run has been executed yet.** This document currently records the
-integration target, the acquired external assets, and the verified contracts
-that the swap must satisfy. Metrics tables will be added only after a run
-produces them.
+**Scope of this document.** It records the integration target, the acquired
+external assets, the verified contracts the swap must satisfy, and the runbook
+for evaluating a finished detector arm. It is authoritative for weight
+checksums, the detection-handoff contract, and artifact/variant naming.
+
+It is **not** where results live. Tracking runs have been executed — the
+association sweep, arms A and D, and the `yoloxx20` baseline all have TrackEval
+numbers. Every measured figure is in
+[`docs/results-reference.md`](results-reference.md) (generated, authoritative for
+values), interpreted in [`docs/experiment-report.md`](experiment-report.md).
+Task status is in Beads.
 
 ## Integration Target
 
@@ -57,9 +64,11 @@ Notes on these assets:
   evidence that the file is MOT20-trained rather than the MOT17 sibling.
 - A Hugging Face file of the same name exists at 336,553,343 bytes. It is not
   byte-identical to the authors' 315,810,563-byte file and was not used.
-- Neither file has been instantiated through its full framework
-  (`fast_reid.build_model`, torchreid package) because the tracking environment
-  does not exist yet. Structural verification is what has been performed.
+- Structural verification is what is recorded above, performed before the
+  tracking environment existed. Both checkpoints have since been instantiated
+  through their real frameworks (`fast_reid.build_model`, torchreid) under
+  `.venv-tracking` by `tracking/scripts/export_embeddings.py`, which is what
+  produced the L2 embeddings in `artifacts/tracking/embeddings/`.
 
 ## Verified Integration Contracts
 
@@ -401,20 +410,29 @@ default would run at geometry the model never saw, and would record provenance
 claiming the default as though it were intended. Covered by `LongSideCapTest` in
 `finetuning/tests/detection/test_rfdetr_training.py`.
 
-## Open Items
+## Integration Questions, and How They Resolved
 
-- Tracking environment. There is no conda on this machine, so the upstream
-  `boost-track-env.yml` cannot be built as written. The intent is a separate
-  virtual environment so the detector training environment is untouched.
-- RF-DETR inference geometry. Training used aspect-preserving 1120px resize
-  with padding; `RFDETR.predict` defaults to a square resize. The training
-  geometry must be reproduced before a full detection dump, or detection
-  quality silently degrades.
-- Resolved: NMS on RF-DETR set predictions. Greedy suppression at IoU 0.7,
-  matching the `nmsthre` the published YOLOX detections were produced with, is
-  the best setting measured and is worth +0.63 HOTA. `num_select = 390`
-  saturation was observed (MOT20-05 reached 386 in one frame before filtering,
-  331 after) but is not the limiting factor; localization is.
-- Detection export format and location, following the existing
-  `<sequence>/det_<name>/det_<name>.txt` convention already used by
-  `datasets/val_half/` and `datasets/MOT20_TEST_DET/`.
+These were the open questions when the swap was designed. All four are settled;
+they are kept because each resolution is a contract the pipeline still depends
+on. Remaining work is tracked in Beads, not here.
+
+- **Tracking environment.** There is no conda on this machine, so the upstream
+  `boost-track-env.yml` could not be built as written. Resolved with a separate
+  `.venv-tracking` virtual environment, leaving the detector training
+  environment untouched. Both ReID checkpoints have since been instantiated
+  through their real frameworks by `export_embeddings.py`, so the structural
+  verification recorded above is no longer the only evidence.
+- **RF-DETR inference geometry.** Training used aspect-preserving 1120px resize
+  with padding while `RFDETR.predict` defaults to a square resize, which would
+  have silently degraded a full detection dump. Resolved by sharing
+  `apply_long_side_cap` between trainer and exporter and gating every export
+  with `verify_detector_geometry.py`; the geometry probes are in
+  `artifacts/tracking/geometry-*.json`.
+- **NMS on RF-DETR set predictions.** Greedy suppression at IoU 0.7, matching
+  the `nmsthre` the published YOLOX detections were produced with, is the best
+  setting measured and is worth +0.63 HOTA. `num_select = 390` saturation was
+  observed (MOT20-05 reached 386 in one frame before filtering, 331 after) but
+  is not the limiting factor; localization is.
+- **Detection export format and location.** Resolved as
+  `<sequence>/det_<name>/det_<name>.txt`, following the convention already used
+  by `datasets/val_half/` and `datasets/MOT20_TEST_DET/`.

@@ -1,10 +1,19 @@
 # Consolidated Results Reference
 
 Generated 2026-09-08 by `tracking/scripts/build_results_reference.py`.
-**Do not edit by hand** — every figure is read from a stored manifest, metrics
-CSV, or annotation file. Re-run the generator after any new experiment.
+**Do not edit by hand** — re-run the generator after any new experiment.
 
-Interpretation and root-cause analysis live in `docs/tracker-experiments.md`.
+Every *measured result* below — detection accuracy, localization, tracking,
+training curves, geometry probes, dataset audits — is read at generation time
+from a stored manifest, metrics CSV, or analysis JSON, so those cannot drift
+from the artifacts. A small number of descriptive constants are still literals
+in the generator rather than artifact reads: the frame and identity counts in
+1.1, the size/density block in 1.3, the source-domain comparison in 2.1, and
+the effective-geometry line in 3. Treat those four as transcribed, not derived.
+
+Interpretation and conclusions live in `docs/experiment-report.md`;
+detector-gap root-cause analysis in `docs/tracker-improvements.md`;
+integration contracts and artifact naming in `docs/tracker-experiments.md`.
 Task status lives in Beads (`bd ready`, `bd list --status=open`).
 This file is numbers only.
 
@@ -15,6 +24,13 @@ This file is numbers only.
   (`tracking/scripts/run_boosttrack.py`) and the vendored TrackEval. The
   `yoloxx20` baseline is **measured here**, not quoted from the BoostTrack++ repo
   or paper. Only the detection file differs between a baseline row and an RF-DETR row.
+- **The `yoloxx20` baseline is not held out on this split.** Its detections come
+  from `bytetrack_x_mot20.tar`, trained on the full MOT20 train set, of which
+  `val_half` is the second half. Every RF-DETR-vs-baseline delta here is measured
+  against a detector that saw the evaluation frames in training; RF-DETR-vs-RF-DETR
+  deltas are unaffected. No YOLOX weights are on disk, so the detector identity
+  rests on `datasets/README.md` and BoostTrack's config mapping, not a checksum.
+  See `docs/experiment-report.md` section 0.
 - All work is classified `local_test_adapted` per `docs/MOTPolicy.md`: the detector's
   training mix contains 21 human-audited Byte65 MOT20-test images, so no result here
   is leaderboard-comparable.
@@ -58,6 +74,23 @@ Measured directly against each other, no model involved:
 
 **The two label sets are the same boxes.** A label-convention mismatch cannot
 explain any disagreement between mAP and HOTA.
+
+### 1.2b Overlap inside the ground truth itself
+
+The control for the duplicate-pair figures in section 4. `analyze_detections.py`
+counts every *pair of predictions* over an IoU threshold without matching them
+to ground truth, so genuinely overlapping distinct people inflate it. Applying
+the same rule to `gt.txt`, where every box is a distinct annotated person,
+bounds how much of that figure is legitimate crowding.
+
+| IoU threshold | GT pairs per frame | Frames containing one |
+| ---: | ---: | ---: |
+| 0.50 | 10.3872 | 4,422 (99.08%) |
+| 0.60 | 3.9045 | 4,136 (92.67%) |
+| 0.75 | 0.5848 | 1,877 (42.06%) |
+| 0.90 | 0.0475 | 212 (4.75%) |
+
+Highest GT-to-GT IoU anywhere in the split: 0.9830.
 
 ### 1.3 Object size and density, `val_half`
 

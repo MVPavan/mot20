@@ -103,7 +103,7 @@ variable.
 | Capacity / distribution | $Q=390$, `group_detr=13`, BF16, eight RTX 3090 GPUs, micro-batch 4 x `grad_accum_steps` 2, global batch 64, 14 GB of 24 GB per card |
 | Configuration | `finetuning/configs/rfdetr_2xl_i5-arm-d-maxsize1600-bs4.toml` |
 | Artifacts | `finetuning/artifacts/rfdetr-2xl-i5-armd-2026-09-07-r1/` |
-| Duration | 27,256.6 s, 30 epochs |
+| Duration | 27,256.6 s, 30 epochs — `train_call_wall_seconds` from `launcher-result.json`, the trainer's own clock around the training call. `docs/tracker-improvements.md` quotes 27,795 s for the same run: that is the supervisor span in `finetuning/artifacts/overnight-supervisor.log`, from `preparing` at 21:55:56 to torchrun exit at 05:39:11, so it includes run preparation and checkpoint expansion. Both are correct and measure different things |
 | Best regular $mAP_{50:95}$ | 0.6243 at epoch 13 |
 | Best EMA $mAP_{50:95}$ | **0.6282 at epoch 9** |
 | Best checkpoint | `checkpoint_best_total.pth`, `best_total_source = ema`, `global_step = 3730` |
@@ -140,9 +140,53 @@ Started 2026-09-08 09:54. Running in host tmux session `mot20`, window
 | Initialization | `weights/rfdetr/rf-detr-xxlarge.pth`, sha256 `bf418652...c5d553ae` — the same base as every other arm, **not** arm D's checkpoint |
 | Recipe | Arm D's, `max_size = 1600` |
 | Distribution | Seven GPUs, devices 0-6; **device 7 deliberately left free** for concurrent inference work. Micro-batch 4 x `grad_accum_steps` 2 x 7 = effective batch 56 |
-| Epochs | 8, about 4,046 optimisation steps at 505.75 steps/epoch, matched against arm D's 3,730-step peak |
+| Epochs | 8, **506 optimisation steps per epoch, 4,048 total** — see the correction below |
 | Measured footprint | About 14 GB of 24 GB per card, matching arm D |
-| Checkpoint selection | **Final epoch.** The `valid` split is empty, so no best-checkpoint metric exists |
+| Checkpoint selection | **`last_ema.pth`** — the final EMA weights. See the deliverable note below; do not accept `checkpoint_best_*.pth` from this run |
+
+#### Correction: the config header's step arithmetic is wrong
+
+The config's header comment computes "505.75 steps per epoch, so 8 epochs is
+about 4,046 steps". That division is the right idea but the wrong number, and
+the reasoning attached to it is looser than it was stated.
+
+The true count is **506 steps per epoch, 4,048 in eight epochs.** RF-DETR's
+`GradAccumAlignedDataset` pads the dataset up to a multiple of
+`effective_batch_size x world_size` so that gradient accumulation never fires on
+a partial window, so 28,322 images become 28,336 and divide exactly by 56. It
+rounds up; it does not truncate. The live `metrics.csv` is consistent with 506.
+
+The stated rationale also conflates two things. If the target were literally the
+nearest step count to arm D's 3,730-step peak, **seven** epochs (3,542) is
+closer than eight (4,048). Eight was chosen to land just *past* the peak and
+inside arm D's observed plateau, which ran to step ~5,967 — a different and
+defensible criterion, but not "step-matched". Warmup is likewise not
+step-matched: `warmup_epochs = 1.0` is 506 steps here against arm D's 373.
+
+The config file itself is **left unmodified on purpose.** Its sha256
+`7d9d58cd...` is recorded as `config_sha256` in the run's `run-provenance.json`;
+editing the file, even only its comments, would break that link for a run that
+is still executing. The corrected arithmetic lives here instead.
+
+#### Deliverable: which checkpoint
+
+With a formally empty `valid` split there is no validation metric, so
+"best checkpoint" has no meaning for this run — and RF-DETR's
+`best_model.py` will still emit plausible-looking files: `checkpoint_best_ema.pth`
+is documented to be *backfilled with the final EMA weights if the EMA metric
+never improved*, which is exactly this case. A file named `best` here would be a
+backfill, not a selection.
+
+Declared in advance of the run finishing, so it cannot be chosen post hoc:
+
+- **The deliverable is `last_ema.pth`**, the final EMA weights.
+- EMA rather than regular because arm D's ablation selected the EMA branch
+  (`best_total_source = ema`, peak 0.6282 EMA against 0.6243 regular), and this
+  build exists to enact arm D's recipe.
+- `checkpoint_best_total.pth`, `checkpoint_best_ema.pth` and
+  `checkpoint_best_regular.pth` from this run are to be treated as artifacts of
+  the callback, not as selections, and must not be reported as "best".
+- Record the sha256 of `last_ema.pth` in this receipt when the run completes.
 
 The empty `valid` split had never been exercised by the training loop. It works:
 Lightning emits `Total length of DataLoader across ranks is zero` as a warning
@@ -164,9 +208,11 @@ only the training was pending.
 | Valid | Formally empty, 0 images. `metadata.formal_empty_validation = true`, `checkpoint_selection = final_epoch_selected_by_ablation` |
 | Audit | `cross_split_duplicate_images: []`, `mot20_temporal_overlap: []`, `held_out_benchmark_comparable: false` |
 
-**Running this destroys the only held-out yardstick.** Once `val_half` is in the
-training mix, no number in `docs/results-reference.md` can be re-measured. All
-comparative work should finish first. Per the 2026-09-06 decision, the
+**This build has no held-out yardstick.** Because `val_half` is in its training
+mix, no number in `docs/results-reference.md` can be re-measured against *this
+model*. It does not invalidate the existing figures: arms A–D held `val_half`
+out and their weights are untouched, so comparative work on them stays valid
+while this runs. Per the 2026-09-06 decision, the
 competition build takes the **final** checkpoint at an epoch count chosen on the
 ablation build; its `valid` split is a formality for the training loop and must
 not drive checkpoint selection.

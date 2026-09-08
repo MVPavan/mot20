@@ -1,5 +1,15 @@
 # RF-DETR 2XL Fine-Tuning Readiness
 
+> **Historical snapshot, dated 2026-09-04. Superseded.** This records readiness
+> as it stood *before* any real fine-tuning run. Every gate below has since been
+> passed: arms A, B, C and D all completed, and the I4 competition build is
+> running. Read it for the environment, geometry and ignore-label evidence,
+> which is still accurate and still the basis of the pipeline. Do **not** read
+> its "Remaining Fine-Tuning Run" or "Open Gates" sections as current work —
+> the three-epoch clean characterization they describe was overtaken by the
+> full runs. Current results are in `finetuning/experiments.md` and
+> `docs/results-reference.md`; current task status is in Beads.
+
 ## Status
 
 RF-DETR 2XL fine-tuning is partially verified. A three-epoch Byte65
@@ -139,6 +149,6 @@ Do not close readiness or start real fine-tuning until fresh evidence shows:
 - `finetuning/docs/experiments/2026-09-04-rfdetr-loader-geometry-audit.md`
 - `finetuning/docs/experiments/2026-09-04-rfdetr-2xl-aspect-capacity-probe.md`
 - `finetuning/docs/experiments/2026-09-04-rfdetr-2xl-byte65-aspect-characterization.md`
-- `finetuning/docs/status/2026-09-04-finetuning-blockers-todo.md`
+- `finetuning/experiments.md` — run receipts and the active I4 build
 - `finetuning/docs/plans/2026-09-03-rfdetr-2xl-mot20-training.md`
 - `docs/MOTPolicy.md`

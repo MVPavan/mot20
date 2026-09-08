@@ -59,3 +59,12 @@ retention, and 40px batch padding, but it does **not** verify a strict 1333px
 training long-edge bound. A fresh aspect-preserving capacity probe must use the
 observed 1360 x 1360 padded envelope, or the installed resize implementation
 must be changed and the complete audit rerun.
+
+### Independent review
+
+This finding was put to GPT-5.6 Sol High as a follow-up review of the loader
+audit. It recommended keeping the deterministic 1335px cap-rounding behavior as
+installed and absorbing it through a fresh 1360 x 1360 capacity probe, rather
+than patching the resize implementation and rerunning the whole audit. That is
+the path taken; the probe is
+`2026-09-04-rfdetr-2xl-aspect-capacity-probe.md`.
