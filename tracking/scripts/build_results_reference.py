@@ -365,7 +365,19 @@ def build() -> str:
     add("`summarize()` computes the headline AP with a hardcoded `maxDets = 100` that is")
     add("absent from this list and silently yields −1.")
     add("")
+    # Later arms were analysed into their own files rather than rewriting the
+    # original, which would have meant re-running every variant's COCO
+    # evaluation to add one column. Same script, same protocol, same `valid`
+    # annotations; merged here so the matrix stays one table.
     analysis = read_json(ARTIFACTS / "detection-analysis-val_half.json")
+    for extra_name in ("detection-analysis-armc-val_half.json", "detection-analysis-i4-val_half.json"):
+        extra = read_json(ARTIFACTS / extra_name)
+        if analysis and extra:
+            if extra.get("duplicate_iou") != analysis.get("duplicate_iou") or extra.get(
+                "max_dets"
+            ) != analysis.get("max_dets"):
+                raise SystemExit(f"{extra_name} used a different protocol; refusing to merge")
+            analysis["variants"].update(extra["variants"])
     if analysis:
         variants = list(analysis["variants"])
         keys = (
@@ -584,7 +596,7 @@ def build() -> str:
     add("")
     add("| Artifact | Path |")
     add("| --- | --- |")
-    add("| Detection scores | `artifacts/tracking/detection-analysis-val_half.json` |")
+    add("| Detection scores | `artifacts/tracking/detection-analysis-val_half.json`, `-armc-`, `-i4-` |")
     add("| Localization | `artifacts/tracking/localization-analysis-val_half.json` |")
     add("| Label agreement | `artifacts/tracking/annotation-agreement-val_half.json` |")
     add("| Geometry gate and probes | `artifacts/tracking/geometry-gate-*.json`, `geometry-probe-*.json` |")
