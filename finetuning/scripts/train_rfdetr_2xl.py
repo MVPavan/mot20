@@ -42,7 +42,14 @@ def main() -> None:
     config = load_training_config(config_path)
     validate_training_config(config)
     dataset_root = args.dataset_root.resolve()
-    audit = audit_rfdetr_coco_dataset(dataset_root, group_detr=config["capacity"]["group_detr"])
+    # Opt-in, and only from the config file, whose sha256 is pinned into run
+    # provenance — so a run that validates on its own training data cannot do so
+    # without that fact being recorded alongside its results.
+    audit = audit_rfdetr_coco_dataset(
+        dataset_root,
+        group_detr=config["capacity"]["group_detr"],
+        contaminated_validation=bool(config["run"].get("contaminated_validation", False)),
+    )
     validate_training_config(config, audit)
     seed = config["training"].get("seed")
     if seed is not None:

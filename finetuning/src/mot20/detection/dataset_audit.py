@@ -12,8 +12,31 @@ from typing import Any
 from PIL import Image
 
 
-def audit_rfdetr_coco_dataset(dataset_root: Path, group_detr: int = 13) -> dict[str, Any]:
-    """Audit RF-DETR's train/valid COCO layout and return capacity evidence."""
+def audit_rfdetr_coco_dataset(
+    dataset_root: Path,
+    group_detr: int = 13,
+    contaminated_validation: bool = False,
+) -> dict[str, Any]:
+    """Audit RF-DETR's train/valid COCO layout and return capacity evidence.
+
+    Args:
+        dataset_root: Directory holding ``train/`` and ``valid/``.
+        group_detr: Decoder group count, used for the query-capacity floor.
+        contaminated_validation: Opt in to a validation split that overlaps
+            train. Normally any shared image bytes or shared MOT20 frames are a
+            hard error, because they silently invalidate every held-out number a
+            run produces. A diagnostic run may want the overlap deliberately —
+            arm E validates on data it trains on to observe training-set fit
+            across epochs. Setting this converts the two errors into recorded
+            findings, so the overlap appears in the audit and in run provenance
+            as a declared property rather than an undetected one. It never
+            hides the overlap: ``cross_split_duplicate_images`` and
+            ``mot20_temporal_overlap`` are populated either way.
+
+    Raises:
+        ValueError: On train/valid overlap when *contaminated_validation* is
+            false, or when the declared contamination does not materialise.
+    """
     dataset_root = Path(dataset_root)
     if group_detr < 1:
         raise ValueError(f"group_detr must be positive, got {group_detr}")
@@ -27,20 +50,57 @@ def audit_rfdetr_coco_dataset(dataset_root: Path, group_detr: int = 13) -> dict[
         for split, manifest in manifests.items()
     }
     duplicate_images = _cross_split_duplicates(split_audits["train"]["image_hashes"], split_audits["valid"]["image_hashes"])
-    if duplicate_images:
-        raise ValueError(f"cross-split duplicate image bytes: {duplicate_images}")
     temporal_overlap = sorted(set(split_audits["train"]["mot20_frames"]) & set(split_audits["valid"]["mot20_frames"]))
-    if temporal_overlap:
-        raise ValueError(f"MOT20 temporal overlap between train and valid: {temporal_overlap}")
+    if not contaminated_validation:
+        if duplicate_images:
+            raise ValueError(f"cross-split duplicate image bytes: {duplicate_images}")
+        if temporal_overlap:
+            raise ValueError(f"MOT20 temporal overlap between train and valid: {temporal_overlap}")
+    elif not duplicate_images and not temporal_overlap:
+        # The declaration is not a free pass to set and forget. If a run claims
+        # a contaminated validation split and the overlap is absent, either the
+        # dataset is not the one intended or the flag was copied from another
+        # config; both would silently produce a run whose numbers mean something
+        # other than what its provenance says.
+        raise ValueError(
+            "contaminated_validation was declared but train and valid share no "
+            "image bytes and no MOT20 frames; the declaration does not match the dataset"
+        )
     maximum_labels = max(
         split_audits[split]["density"][kind]["maximum"]
         for split in split_audits
         for kind in ("positive", "ignored")
         if kind == "positive"
     )
+    # A declared-contaminated split overlaps on every frame, so the full
+    # duplicate list is thousands of entries and would bloat run provenance into
+    # near-uselessness. Record the totals, which are the load-bearing facts, and
+    # a short sample for spot checking.
+    contamination: dict[str, Any] | None = None
+    if contaminated_validation:
+        contamination = {
+            "declared": True,
+            "duplicate_image_count": len(duplicate_images),
+            "mot20_frame_overlap_count": len(temporal_overlap),
+            "valid_images": split_audits["valid"]["image_count"],
+            "duplicate_image_sample": duplicate_images[:5],
+            "mot20_frame_overlap_sample": temporal_overlap[:5],
+            "warning": (
+                "Validation overlaps training. Every val/* metric from this run is a "
+                "training-set fit measurement, not a generalization measurement, and "
+                "must not be compared with held-out runs."
+            ),
+        }
+        duplicate_images = []
+        temporal_overlap = []
+
     return {
         "format": "mot20.rfdetr.dataset-audit.v1",
-        "classification": manifests["train"].get("metadata", {}).get("classification", "clean_held_out_validation"),
+        "classification": manifests["train"].get("metadata", {}).get(
+            "classification",
+            "contaminated_validation" if contaminated_validation else "clean_held_out_validation",
+        ),
+        "contaminated_validation": contamination,
         "split_counts": {
             split: {
                 "images": split_audits[split]["image_count"],

@@ -1,0 +1,122 @@
+# Arm E: I4's recipe, but validating on data it trains on, to watch the curve.
+#
+# READ THIS BEFORE QUOTING ANY NUMBER FROM THIS RUN.
+#
+# The `valid` split is MOT20 `val_half`, and all 4,463 of those frames are also
+# in this run's `train` split. Verified: 4,463/4,463 = 100% overlap. Every
+# `val/mAP_*` this run reports is therefore a TRAINING-SET FIT measurement, not
+# a generalization measurement. It cannot be compared with arms A-D, whose
+# validation was genuinely held out, and it must never appear in the same table
+# as them. See `docs/experiment-report.md` section 0.
+#
+# WHY MEASURE A CONTAMINATED SPLIT ON PURPOSE
+#
+# I7: every held-out arm peaks in single-digit epochs and then declines without
+# recovering. Nothing has explained it. Arms A-D only ever measured the
+# held-out side of that curve, which cannot distinguish the two live causes:
+#
+#   (a) classic overfitting  -> training-set fit keeps RISING while held-out
+#                               falls. Fix is regularization / early stopping.
+#   (b) mixture interference -> training-set fit ALSO FALLS. A model cannot
+#                               overfit and simultaneously get worse on its own
+#                               training data, so (a) would be refuted and the
+#                               cause is elsewhere: the 68.4% CrowdHuman share
+#                               progressively pulling capacity away from MOT20,
+#                               or the LR schedule, or EMA dynamics.
+#
+# This run measures the training-set side. Read against arms A-D it forks the
+# question. That is its entire purpose; it is a diagnostic, not a candidate
+# model, and its checkpoints are not competition deliverables.
+#
+# DELIBERATE PARITY WITH I4
+#
+# Seven GPUs, micro-batch 4 x grad_accum 2 = effective batch 56, 506 optimiser
+# steps per epoch - identical to I4. So arm E's epoch N is directly comparable
+# to I4's epoch N, and arm E's first 8 epochs should approximately reproduce
+# the I4 run (approximately, not exactly: DDP reductions are not bit
+# deterministic). That reproduction is a free consistency check. Raising the
+# GPU count would change the effective batch and forfeit it.
+#
+# Deviations from `rfdetr_2xl_i4-competition-maxsize1600-7gpu.toml`:
+#
+#   dataset              I4's train manifest is SYMLINKED here, not copied, so
+#                        it is provably the same file. The valid manifest is
+#                        symlinked from the arm A-D build, so it is provably the
+#                        same split arms A-D were scored against.
+#
+#   epochs 8 -> 20       I4 stopped at 8 because that is where arm D's held-out
+#                        curve peaked. Arm E must run well PAST any peak or it
+#                        cannot observe a decline. Stopped early by the operator
+#                        once 6 consecutive epochs fail to beat the running best
+#                        EMA mAP@50:95.
+#
+#   checkpoint_interval  4 -> 1. Every epoch is retained. There is no valid
+#                        "best" checkpoint on a contaminated split, so instead
+#                        of selecting one we keep them all and let later
+#                        analysis pick. Each .ckpt carries BOTH weight branches:
+#                        `state_dict` (regular) and
+#                        `callbacks.RFDETREMACallback.average_model_state_dict`
+#                        (EMA), so either branch is recoverable per epoch.
+#                        Costs about 2.0 GB per epoch, ~40 GB for 20.
+#
+# `checkpoint_best_total.pth` from this run WILL be populated, because unlike I4
+# there is a metric to select on. It is best-on-training-data. Do not read it as
+# a selected model.
+[run]
+status = "approved"
+classification = "local_test_adapted"
+ignored_iou_threshold = 0.5
+
+# Opt in to a validation split that overlaps training. The dataset audit
+# normally treats shared image bytes or shared MOT20 frames between train and
+# valid as a hard error, because that silently invalidates every held-out number
+# a run produces - it refused this run until this flag was set, which is the
+# gate working. Here the overlap is the experiment, so it is declared rather
+# than bypassed: the audit still measures it and records the counts in
+# `run-provenance.json`, and it will REFUSE this run if the declared
+# contamination turns out not to exist. This config's sha256 is pinned into
+# provenance, so no result from this run can be read without the declaration
+# attached to it.
+contaminated_validation = true
+
+[model]
+name = "RFDETR2XLarge"
+checkpoint = "weights/rfdetr/rf-detr-xxlarge.pth"
+num_classes = 1
+resolution = 1120
+max_size = 1600
+amp = true
+gradient_checkpointing = true
+
+[capacity]
+group_detr = 13
+num_queries = 390
+num_select = 390
+eval_max_dets = 390
+
+[training]
+batch_size = 4
+grad_accum_steps = 2
+devices = 7
+strategy = "ddp"
+sync_bn = true
+epochs = 20
+lr = 0.00005
+lr_encoder = 0.000075
+weight_decay = 0.0001
+amp_dtype = "bf16"
+multi_scale = true
+do_random_resize_via_padding = true
+square_resize_div_64 = false
+scale_jitter = false
+use_ema = true
+eval_interval = 1
+warmup_epochs = 1.0
+lr_scheduler = "step"
+lr_drop = 24
+checkpoint_interval = 1
+num_workers = 4
+pin_memory = true
+persistent_workers = true
+save_dataset_grids = false
+seed = 42
