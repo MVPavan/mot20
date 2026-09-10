@@ -48,7 +48,7 @@ scratchpad/
 *.db
 .beads-credential-key
 .beads/proxieddb/
-repos/
+repos/*
 
 # Viewer dependencies, builds, and generated test output
 track-viz/web/node_modules/
