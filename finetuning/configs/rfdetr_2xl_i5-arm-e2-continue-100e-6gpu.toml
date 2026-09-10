@@ -1,0 +1,160 @@
+# Arm E2: a TRUE RESUME of arm E from epoch 20, running to 100, on six GPUs.
+#
+# READ THIS BEFORE QUOTING ANY NUMBER FROM THIS RUN.
+#
+# Arm E2 inherits arm E's contaminated validation split. `valid` is MOT20
+# `val_half`, and all 4,463 of those frames are also in `train` (verified 100%
+# overlap). Every `val/mAP_*` this run reports is a TRAINING-SET FIT
+# measurement. It is not comparable with arms A-D and must never share a table
+# with them. `contaminated_validation = true` below re-declares this; the audit
+# will REFUSE the run if the declared overlap turns out not to exist.
+#
+# THIS IS A RESUME, NOT A WARM START
+#
+# `resume` is forwarded verbatim by RF-DETR to `trainer.fit(ckpt_path=...)`, so
+# optimizer state, EMA buffers, LR-scheduler position, and the epoch counter all
+# continue from arm E. The checkpoint was verified to carry all of it:
+# epoch=19, global_step=10120, one optimizer state, an LR-scheduler state with
+# last_epoch=10120, and callback state for RFDETREMACallback and
+# BestModelCallback. Training starts at epoch 20, not at 0.
+#
+# No launcher change was needed. `train_rfdetr_2xl.py` forwards the whole
+# `[training]` table into `model.train(**training)`, and `resume` is a
+# first-class `TrainConfig` field.
+#
+# `pretrain_weights` still points at the expanded q390 initialization, and the
+# launcher still materializes it. That load is redundant here - Lightning
+# overwrites the weights from `resume` immediately afterwards - but it is left
+# in place so the run's provenance record is built exactly like every other
+# arm's.
+#
+# DEVIATION THE USER CHOSE, RECORD IT: 7 GPUs -> 6.
+#
+# Effective batch goes 4 x 2 x 7 = 56 to 4 x 2 x 6 = 48. On the same 28,322
+# training images that moves optimizer steps per epoch from 506 to 590.
+# Consequences, in order of how much they matter:
+#
+#   1. ARM E2 EPOCH N IS NOT STEP-COMPARABLE WITH ARM E EPOCH N OR I4 EPOCH N.
+#      The deliberate I4 step-parity that arm E was built to preserve is
+#      forfeited here. Report arm E2 against OPTIMISER STEPS, not epochs.
+#      Arm E's 20 epochs are 10,120 steps; arm E2's epoch 20 ENDS at 10,710.
+#
+#   2. The resumed LR-scheduler position is in step units and restores exactly
+#      (last_epoch=10120), but the schedule that consumes it is rebuilt from
+#      THIS config at the new 590 steps/epoch. `LambdaLR` does not serialize a
+#      plain-function lambda, so the new cosine curve below is what runs, driven
+#      from the old step count. That is the intended behaviour, not an accident.
+#
+#   3. lr is unchanged at 5e-5 while the batch shrinks ~14%, so the effective
+#      learning rate per sample rises slightly. Left as-is.
+#
+# LR SCHEDULE: COSINE, NOT ARM E'S INHERITED STEP DROP
+#
+# Arm E carried `lr_scheduler = "step"` with `lr_drop = 24`, inherited from I4
+# where `epochs = 8` meant it could never fire. Extending to 100 epochs would
+# fire it for the first time, and it would NOT land on epoch 24: the boundary is
+# `lr_drop * steps_per_epoch` in global step units = 24 x 590 = 14,160, which a
+# run resuming at step 10,120 reaches at epoch ~26.9. It would then spend 73 of
+# the 80 new epochs at 5e-6. A 10x cliff mid-diagnostic makes the fit curve
+# unreadable: the flattening you would observe afterwards is the schedule, not
+# the model.
+#
+# Cosine over the full 100 epochs instead, floored at 5% of base:
+#
+#   resume at step 10,120 -> progress (10120-590)/(59000-590) = 0.163
+#                         -> factor 0.939, lr 4.69e-5
+#
+# So the handoff from arm E's constant 5e-5 is a 6% step down - continuous
+# enough that the "abort if the first post-resume epoch shows a loss
+# discontinuity" check below still means something. It then decays smoothly to
+# 2.5e-6 at step 59,000.
+#
+# The decay does not weaken the I7 fork, it sharpens it. Under a monotonically
+# decaying LR, training-set fit should rise monotonically if the model is simply
+# fitting its data. If fit instead DECLINES, that cannot be overfitting and it
+# cannot be an LR that is too high, because the LR is falling the whole time.
+# That would leave mixture interference - the 68.4% CrowdHuman share - as the
+# live explanation, which is exactly what mot-ayx needs to know.
+#
+# CHECKPOINTING: library default interval, best-tracking on
+#
+# `checkpoint_interval = 10` is RF-DETR's default. Arm E used 1 because on a
+# contaminated split there is no valid "best" to select, so it kept everything;
+# at 80 more epochs that policy would cost ~160 GB. Interval 10 costs ~16 GB.
+#
+# Nothing is lost by raising it, because RF-DETR writes three other things:
+#
+#   last.ckpt                  every epoch. Only constructed when
+#                              checkpoint_interval != 1 (trainer.py skips it at
+#                              1 to avoid a duplicate ModelCheckpoint
+#                              state_key), so arm E has none and arm E2 will.
+#                              Crash recovery is therefore per-epoch, not
+#                              per-ten-epochs.
+#   checkpoint_best_*.pth      whenever val/mAP_50_95 or val/ema_mAP_50_95 sets
+#                              a new high-water mark, via BestModelCallback,
+#                              which is always on and is independent of
+#                              checkpoint_interval.
+#   metrics.csv                every epoch, since eval_interval = 1. The
+#                              diagnostic curve comes from here, not from the
+#                              checkpoints.
+#
+# TWO THINGS ABOUT "BEST" IN THIS RUN. First, `best` is still best-on-training-
+# data, because the split is contaminated. It selects nothing. Second, arm E2's
+# output_dir differs from the resumed checkpoint's directory, and PyTorch
+# Lightning's ModelCheckpoint.load_state_dict only restores best_model_score
+# when the two dirpaths match exactly. So the high-water mark restarts here:
+# arm E2's checkpoint_best_*.pth is the best of epochs 20-99, not the best
+# overall. Arm E's own peak is in its metrics.csv.
+#
+# STOP RULE: 100 epochs, or stopped by the operator once 6 consecutive epochs
+# fail to beat the running best EMA mAP@50:95. There is no automatic early
+# stopping. Abort immediately if the first post-resume epoch shows a train-loss
+# discontinuity against arm E's epoch 19.
+[run]
+status = "approved"
+classification = "local_test_adapted"
+ignored_iou_threshold = 0.5
+contaminated_validation = true
+
+[model]
+name = "RFDETR2XLarge"
+checkpoint = "weights/rfdetr/rf-detr-xxlarge.pth"
+num_classes = 1
+resolution = 1120
+max_size = 1600
+amp = true
+gradient_checkpointing = true
+
+[capacity]
+group_detr = 13
+num_queries = 390
+num_select = 390
+eval_max_dets = 390
+
+[training]
+resume = "finetuning/artifacts/rfdetr-2xl-arme-diagnostic-2026-09-08-r1/checkpoint_19.ckpt"
+batch_size = 4
+grad_accum_steps = 2
+devices = 6
+strategy = "ddp"
+sync_bn = true
+epochs = 100
+lr = 0.00005
+lr_encoder = 0.000075
+weight_decay = 0.0001
+amp_dtype = "bf16"
+multi_scale = true
+do_random_resize_via_padding = true
+square_resize_div_64 = false
+scale_jitter = false
+use_ema = true
+eval_interval = 1
+warmup_epochs = 1.0
+lr_scheduler = "cosine"
+lr_scheduler_kwargs = { min_factor = 0.05 }
+checkpoint_interval = 10
+num_workers = 4
+pin_memory = true
+persistent_workers = true
+save_dataset_grids = false
+seed = 42

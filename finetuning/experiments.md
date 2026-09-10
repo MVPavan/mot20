@@ -265,6 +265,96 @@ Note this build also lifts MOT20 from 18.8% to 31.6% of training images, so it
 partially confounds I5. The two effects cannot be attributed separately from this
 run alone.
 
+## Completed I7 Diagnostic: Arm E (contaminated validation)
+
+**Every `val/mAP_*` from arm E and arm E2 is a TRAINING-SET FIT measurement.**
+The `valid` split is MOT20 `val_half` and all 4,463 of those frames are also in
+`train`; the dataset audit measured the overlap and recorded
+`contaminated_validation.duplicate_image_count = 4463`. These numbers cannot be
+compared with arms A-D and must never share a table with them.
+
+| | |
+| --- | --- |
+| Configuration | `finetuning/configs/rfdetr_2xl_i5-arm-e-contaminated-val-diagnostic.toml` |
+| Launcher | `finetuning/scripts/run_rfdetr_2xl_arm_e_diagnostic.sh` |
+| Dataset root | `datasets/finetuning/rfdetr-i5-arme-2026-09-08` (28,322 train / 4,463 valid) |
+| Artifacts | `finetuning/artifacts/rfdetr-2xl-arme-diagnostic-2026-09-08-r1/` |
+| Geometry | 7 GPUs, micro-batch 4 x grad_accum 2 = effective 56, 506 steps/epoch — I4 parity |
+| Wall time | 26,643 s (7.40 h) for 20 epochs, 22.2 min/epoch |
+
+Purpose was I7: arms A-D all peak in single-digit epochs on held-out data and
+then decline, and nothing explains it. Arm E measures the *training-set* side of
+the same curve to fork the question — classic overfitting predicts training-set
+fit keeps rising, mixture interference predicts it falls too.
+
+**Result: no turnover through epoch 19.** EMA mAP@50:95 rose monotonically
+0.6025 → 0.7588 across all 20 epochs (regular 0.6106 → 0.7533). The curve never
+peaked, so 20 epochs was not enough to answer the question. Hence arm E2.
+
+Checkpoint retention: run at `checkpoint_interval = 1`, then pruned on
+2026-09-09 to epochs 7 (the I4-parity anchor), 13, and 19 (arm E2's resume
+point), plus the best/EMA `.pth` files. No published detection came from a
+`.ckpt`.
+
+## Active I7 Diagnostic: Arm E2 (arm E resumed to 100 epochs)
+
+Started 2026-09-09 12:42 BST. Inherits arm E's contaminated validation split and
+every caveat above.
+
+| | |
+| --- | --- |
+| Configuration | `finetuning/configs/rfdetr_2xl_i5-arm-e2-continue-100e-6gpu.toml` |
+| Launcher | `finetuning/scripts/run_rfdetr_2xl_arm_e2_continue.sh` |
+| Artifacts | `finetuning/artifacts/rfdetr-2xl-arme2-continue-2026-09-09-r1/` |
+| Resumed from | `rfdetr-2xl-arme-diagnostic-2026-09-08-r1/checkpoint_19.ckpt` |
+| Geometry | 6 GPUs, effective batch 48, 590 steps/epoch. Devices 6-7 left free |
+
+**This is a true resume, not a warm start.** RF-DETR's `TrainConfig.resume` is
+forwarded to Lightning's `trainer.fit(ckpt_path=...)`, and
+`train_rfdetr_2xl.py` already passes the whole `[training]` table through to
+`model.train()`, so no launcher change was needed. Optimizer state, EMA buffers,
+LR-scheduler position and the epoch counter all continue from epoch 19; the run
+log confirms `Restored all states` and `Epoch 20`.
+
+**Arm E2 epoch N is not step-comparable with arm E epoch N or I4 epoch N.** The
+7 → 6 GPU change moves steps/epoch from 506 to 590, forfeiting the I4 parity arm
+E was built to preserve. Report arm E2 against optimizer steps: arm E's 20
+epochs are 10,120 steps, arm E2's epoch 20 ends at 10,710.
+
+**LR schedule changed from step to cosine**, floored at 5% of base. Arm E
+carried `lr_drop = 24` inherited from I4, where `epochs = 8` meant it never
+fired; at 100 epochs it would fire for the first time, and not at epoch 24 — the
+boundary is `lr_drop * steps_per_epoch` = 14,160 global steps, which a run
+resuming at 10,120 reaches at epoch ~26.9, leaving 73 of 80 new epochs at 5e-6.
+A 10x cliff mid-diagnostic would make the fit curve unreadable. Measured cosine
+values: 4.694e-5 at the resume step (6% below arm E's constant 5e-5, so the
+handoff is effectively continuous), 4.228e-5 at epoch 30, 2.877e-5 at epoch 50,
+8.474e-6 at epoch 80, 2.500e-6 at the end. The first logged step confirms
+`train/lr = 4.694037e-05`.
+
+The decay sharpens the I7 fork rather than blunting it: under a monotonically
+falling LR, training-set fit should rise monotonically if the model is merely
+fitting its data. A *decline* could then be neither overfitting nor an
+excessive LR, leaving mixture interference — the 68.4% CrowdHuman share — as the
+live explanation.
+
+Checkpointing is `checkpoint_interval = 10`, RF-DETR's default (~16 GB over 80
+epochs, against ~160 GB at arm E's interval of 1). Nothing is lost: `last.ckpt`
+is written every epoch — and only exists when the interval is not 1, so arm E2
+has per-epoch crash recovery that arm E did not — `BestModelCallback` is always
+on and independent of the interval, and `metrics.csv` logs every epoch at
+`eval_interval = 1`, which is where the diagnostic curve actually comes from.
+
+Two caveats on "best" here. It is best-on-training-data, so it selects nothing.
+And because arm E2's `output_dir` differs from the resumed checkpoint's
+directory, PyTorch Lightning does not restore `best_model_score` (it logs this
+explicitly), so `checkpoint_best_*.pth` is the best of epochs 20-99, not the
+best overall. Arm E's own peak is in its `metrics.csv`.
+
+Ignore the `Val (Epoch 20/100)` table printed before training begins: that is
+Lightning's 2-batch sanity check, not a full evaluation, which is why its result
+is absent from `metrics.csv`.
+
 ## Pending Work
 
 **Tracked in Beads, not here.** Run `bd ready` for available work,
