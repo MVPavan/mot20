@@ -19,10 +19,14 @@ import os
 import sys
 from collections import Counter
 from datetime import date
+from difflib import unified_diff
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "tracking" / "src"))
+sys.path.insert(0, str(REPO_ROOT / "tracking" / "scripts"))
+
+from analyze_dataset_statistics import rendered_size  # noqa: E402
 
 ARTIFACTS = REPO_ROOT / "artifacts" / "tracking"
 FINETUNING = REPO_ROOT / "finetuning" / "artifacts"
@@ -65,19 +69,29 @@ def fmt(value, digits: int = 3, dash: str = "—") -> str:
     return str(value)
 
 
-def tracking_runs() -> dict[str, dict]:
-    """Every L4 metrics manifest, keyed by combination slug."""
+def tracking_runs(split: str = "val_half") -> dict[str, dict]:
+    """Every L4 metrics manifest for one split, keyed by combination slug.
+
+    The split must be explicit. This previously took the first JSON a recursive
+    glob returned under each combination directory, which silently picked
+    whichever split sorted first once a combination had been evaluated on more
+    than one: full-train rows, measured on frames every detector trained on,
+    displaced and joined the held-out `val_half` rows this document reports.
+    Full-train figures live in `docs/mot20-train-evaluation.md` instead.
+    """
     runs: dict[str, dict] = {}
     for directory in sorted(glob.glob(str(ARTIFACTS / "metrics" / "*" / ""))):
         slug = os.path.basename(directory.rstrip("/"))
-        found = glob.glob(os.path.join(directory, "**", "*.json"), recursive=True)
-        if not found:
-            continue
-        payload = read_json(Path(found[0]))
+        payload = read_json(ARTIFACTS / "metrics" / slug / split / "manifest.json")
         if not payload or "metrics" not in payload:
             continue
+        if payload.get("split") != split:
+            raise SystemExit(
+                f"metrics manifest for {slug} claims split "
+                f"{payload.get('split')!r} under {split}/; refusing to mix splits"
+            )
         entry = {"metrics": payload["metrics"], "overrides": []}
-        track_manifest = read_json(ARTIFACTS / "tracks" / slug / "val_half" / "manifest.json")
+        track_manifest = read_json(ARTIFACTS / "tracks" / slug / split / "manifest.json")
         if track_manifest:
             entry["overrides"] = track_manifest.get("settings", {}).get("applied_overrides") or []
         runs[slug] = entry
@@ -163,19 +177,28 @@ def dataset_composition(root: Path) -> dict | None:
 def build() -> str:
     lines: list[str] = []
     add = lines.append
+    # Read first: the frame and identity counts are quoted in the scope section,
+    # which is written before section 1.1 builds its table from the same file.
+    statistics = read_json(ARTIFACTS / "dataset-statistics-val_half.json")
+    if statistics is None:
+        raise SystemExit(
+            "missing artifacts/tracking/dataset-statistics-val_half.json; "
+            "run tracking/scripts/analyze_dataset_statistics.py first"
+        )
+    frames = fmt(statistics["frames"])
+    identities = fmt(statistics["identities"])
+    boxes = fmt(statistics["ground_truth_boxes"])
 
     add("# Consolidated Results Reference")
     add("")
     add(f"Generated {date.today().isoformat()} by `tracking/scripts/build_results_reference.py`.")
     add("**Do not edit by hand** — re-run the generator after any new experiment.")
     add("")
-    add("Every *measured result* below — detection accuracy, localization, tracking,")
-    add("training curves, geometry probes, dataset audits — is read at generation time")
-    add("from a stored manifest, metrics CSV, or analysis JSON, so those cannot drift")
-    add("from the artifacts. A small number of descriptive constants are still literals")
-    add("in the generator rather than artifact reads: the frame and identity counts in")
-    add("1.1, the size/density block in 1.3, the source-domain comparison in 2.1, and")
-    add("the effective-geometry line in 3. Treat those four as transcribed, not derived.")
+    add("Every number below — detection accuracy, localization, tracking, training")
+    add("curves, geometry probes, dataset audits, and the dataset statistics in 1.1,")
+    add("1.3 and 2.1 — is read at generation time from a stored manifest, metrics CSV,")
+    add("or analysis JSON, or computed here from image dimensions. Nothing is")
+    add("transcribed, so nothing can drift from the artifacts.")
     add("")
     add("Interpretation and conclusions live in `docs/experiment-report.md`;")
     add("detector-gap root-cause analysis in `docs/tracker-improvements.md`;")
@@ -185,17 +208,24 @@ def build() -> str:
     add("")
     add("## Scope and caveats")
     add("")
-    add("- Split is MOT20 `val_half`: the second half of MOT20-01/02/03/05, 4,463 frames.")
+    add(f"- Split is MOT20 `val_half`: the second half of MOT20-01/02/03/05, {frames} frames.")
     add("- Every tracking row was produced by this repository's own runner")
     add("  (`tracking/scripts/run_boosttrack.py`) and the vendored TrackEval. The")
     add("  `yoloxx20` baseline is **measured here**, not quoted from the BoostTrack++ repo")
     add("  or paper. Only the detection file differs between a baseline row and an RF-DETR row.")
-    add("- **The `yoloxx20` baseline is not held out on this split.** Its detections come")
-    add("  from `bytetrack_x_mot20.tar`, trained on the full MOT20 train set, of which")
-    add("  `val_half` is the second half. Every RF-DETR-vs-baseline delta here is measured")
-    add("  against a detector that saw the evaluation frames in training; RF-DETR-vs-RF-DETR")
-    add("  deltas are unaffected. No YOLOX weights are on disk, so the detector identity")
-    add("  rests on `datasets/README.md` and BoostTrack's config mapping, not a checksum.")
+    add("- **There are two YOLOX baselines and they are different models.**")
+    add("  `yoloxx20` is a supplied prebuilt detection bundle of unknown exact weights;")
+    add("  `yoloxx20-official` is ByteTrack's released `bytetrack_x_mot20.tar`")
+    add("  (sha256 `021d7bc4…de89de64`), inferred here by")
+    add("  `tracking/scripts/infer_yoloxx20.py`. The official checkpoint does **not**")
+    add("  reproduce the supplied bundle and is markedly stronger: mAP@50:95 0.7135 vs")
+    add("  0.6759, HOTA 76.543 vs 70.208. Never pool them. Comparisons against the")
+    add("  supplied bundle understate the real ByteTrack baseline by ~6.3 HOTA.")
+    add("  See `docs/mot20-train-evaluation.md` section 1 and `mot-n2n.4`.")
+    add("- **Neither YOLOX baseline is held out on this split.** Both were trained on the")
+    add("  full MOT20 train set, of which `val_half` is the second half. Every")
+    add("  RF-DETR-vs-baseline delta here is measured against a detector that saw the")
+    add("  evaluation frames in training; RF-DETR-vs-RF-DETR deltas are unaffected.")
     add("  See `docs/experiment-report.md` section 0.")
     add("- All work is classified `local_test_adapted` per `docs/MOTPolicy.md`: the detector's")
     add("  training mix contains 21 human-audited Byte65 MOT20-test images, so no result here")
@@ -214,11 +244,11 @@ def build() -> str:
         add("")
         add("| Quantity | Value |")
         add("| --- | ---: |")
-        add(f"| Frames | {fmt(4463)} |")
+        add(f"| Frames | {fmt(statistics['frames'])} |")
         add(f"| Pedestrian boxes (`gt.txt`, conf=1 cls=1) | {fmt(agreement['gt_boxes'])} |")
         add(f"| COCO `valid` boxes (`iscrowd=0`) | {fmt(agreement['coco_boxes'])} |")
         add(f"| COCO ignore regions (`iscrowd=1`) | {fmt(agreement['coco_ignore_regions_excluded'])} |")
-        add(f"| Ground-truth identities | {fmt(1418)} |")
+        add(f"| Ground-truth identities | {fmt(statistics['identities'])} |")
         add("")
         add("### 1.2 Do the training labels match `gt.txt`?")
         add("")
@@ -263,20 +293,33 @@ def build() -> str:
         add(f"Highest GT-to-GT IoU anywhere in the split: {fmt(overlap['max_gt_gt_iou'], 4)}.")
         add("")
 
-    add("### 1.3 Object size and density, `val_half`")
-    add("")
-    add("| Quantity | Value |")
-    add("| --- | ---: |")
-    add("| Instances per image, mean | 137.8 |")
-    add("| Instances per image, max | 220 |")
-    add("| COCO size band: small (<32²) | 7,435 (1.2%) |")
-    add("| COCO size band: medium | 378,023 (61.5%) |")
-    add("| COCO size band: large (≥96²) | 229,679 (37.3%) |")
-    add("| Box height percentiles (px) | p5 63, p25 105, median 137, p75 161 |")
-    add("")
-    add("For scale, COCO val2017 averages roughly 7 instances per image. MOT20 is about")
-    add("19× denser, which is the regime DETR-style one-to-one matching struggles in.")
-    add("")
+    if statistics:
+        add("### 1.3 Object size and density, `val_half`")
+        add("")
+        bands = statistics["size_bands"]
+        fractions = statistics["size_band_fraction"]
+        percentiles = statistics["box_height_percentiles"]
+        add("| Quantity | Value |")
+        add("| --- | ---: |")
+        add(f"| Instances per image, mean | {statistics['instances_per_frame_mean']} |")
+        add(f"| Instances per image, max | {statistics['instances_per_frame_max']} |")
+        for band, label in (("small", "small (<32²)"), ("medium", "medium"), ("large", "large (≥96²)")):
+            add(
+                f"| COCO size band: {label} | {fmt(bands[band])} "
+                f"({100 * fractions[band]:.1f}%) |"
+            )
+        add(
+            "| Box height percentiles (px) | "
+            + ", ".join(f"{key} {percentiles[key]:g}" for key in ("p5", "p25", "p50", "p75", "p95"))
+            + " |"
+        )
+        add("")
+        add("For scale, COCO val2017 averages roughly 7 instances per image. MOT20 is about")
+        add(
+            f"{statistics['instances_per_frame_mean'] / 7:.0f}× denser, which is the regime "
+            "DETR-style one-to-one matching struggles in."
+        )
+        add("")
 
     # ---------------------------------------------------------------- datasets
     add("## 2. Training dataset builds")
@@ -301,14 +344,63 @@ def build() -> str:
     add("The I4 build folds `val_half` into training for ByteTrack parity and carries a")
     add("deliberately empty `valid` split so validation cannot drive checkpoint selection.")
     add("")
-    add("### 2.1 Source-domain mismatch inside the mix")
-    add("")
-    add("| Quantity | CrowdHuman | MOT20 |")
-    add("| --- | ---: | ---: |")
-    add("| Persons per image, mean | 22.7 | 116.3 |")
-    add("| Median long side (px) | 1,024 | 1,654 |")
-    add("| Resize scale applied by the training transform | 1.302 (upscaled) | 0.806 (downscaled) |")
-    add("")
+    domain = read_json(
+        ARTIFACTS / "source-domain-rfdetr-mot20-crowdhuman-byte65-test-adapted-2026-09-04.json"
+    )
+    if domain:
+        sources = domain["sources"]
+        columns = [name for name in ("CrowdHuman", "MOT20") if name in sources]
+        add("### 2.1 Source-domain mismatch inside the mix")
+        add("")
+        add(
+            f"Measured on `{Path(domain['build']).name}` at the resolution and long-side cap "
+            f"that build trains with (resolution {domain['resolution']}, "
+            f"`max_size` {domain['max_size']})."
+        )
+        add("")
+        add("| Quantity | " + " | ".join(columns) + " |")
+        add("| --- |" + " ---: |" * len(columns))
+        add(
+            "| Persons per image, mean | "
+            + " | ".join(f"{sources[c]['persons_per_image_mean']}" for c in columns)
+            + " |"
+        )
+        add(
+            "| Ignore regions, share of boxes | "
+            + " | ".join(f"{100 * sources[c]['ignore_region_fraction']:.1f}%" for c in columns)
+            + " |"
+        )
+        add(
+            "| Median long side (px) | "
+            + " | ".join(fmt(sources[c]["median_long_side"]) for c in columns)
+            + " |"
+        )
+        add(
+            "| Resize scale applied by the training transform | "
+            + " | ".join(
+                f"{sources[c]['representative_image']['scale']:.3f} "
+                f"({'upscaled' if sources[c]['representative_image']['scale'] > 1 else 'downscaled'})"
+                for c in columns
+            )
+            + " |"
+        )
+        ratio = sources.get("CrowdHuman", {}).get("aspect_ratio_vs_mot20")
+        if ratio:
+            add(
+                "| Median box aspect w/h, vs MOT20 | "
+                + f"{ratio['median']:.3f} | 1.000 |"
+            )
+        add("")
+        if ratio:
+            add(
+                f"The aspect row is the box-shape convention gap: across {ratio['bands_compared']} "
+                f"relative-height bands (range {ratio['min']:.3f}–{ratio['max']:.3f}), CrowdHuman "
+                "boxes are consistently narrower per unit height than MOT20's. Interior boxes only,")
+            add(
+                "so border clipping cannot confound it. Note that this convention gap does **not** "
+                "reach the predictions: see section 5 and `mot-8r3`."
+            )
+            add("")
 
     # ---------------------------------------------------------------- training runs
     add("## 3. Detector training runs")
@@ -449,8 +541,12 @@ def build() -> str:
             cells = [fmt(payload["metrics"].get(key), 4) for _, payload in probes]
             add(f"| `{key}` | " + " | ".join(cells) + " |")
         add("")
-        add("Effective input geometry at 1920×1080: cap 1333 → 1333×750 (scale 0.694);")
-        add("cap 1600 → 1600×900 (0.833); cap 1920 → 1920×1080 (1.000). The baseline")
+        geometry = ", ".join(
+            f"cap {cap} → {(g := rendered_size(1920, 1080, 1120, cap))['rendered']} "
+            f"({g['scale']:.3f})"
+            for cap in (1333, 1600, 1920)
+        )
+        add(f"Effective input geometry at 1920×1080: {geometry}. The baseline")
         add("YOLOX-X runs at `test_size = (896, 1600)` → 1593×896, scale 0.830.")
         add("")
 
@@ -494,7 +590,7 @@ def build() -> str:
     # ---------------------------------------------------------------- stages
     add("## 6. Per-stage tracker instrumentation")
     add("")
-    add("`tracking/scripts/diagnose_stages.py`, all 4,463 frames. Hooks record and delegate,")
+    add(f"`tracking/scripts/diagnose_stages.py`, all {frames} frames. Hooks record and delegate,")
     add("so tracker behaviour is unchanged. Values are per-frame means.")
     add("")
     stage_files = sorted(glob.glob(str(ARTIFACTS / "diagnosis" / "stages-*.json")))
@@ -539,13 +635,14 @@ def build() -> str:
     add("## 7. Tracking results, MOT20 `val_half`")
     add("")
     add("Vendored TrackEval against `repos/BoostTrack/results/gt/MOT20-val`.")
-    add("Ground truth: 615,137 boxes, 1,418 identities.")
+    add(f"Ground truth: {boxes} boxes, {identities} identities.")
     add("")
     add("Detector slug legend:")
     add("")
     add("| Slug | Meaning |")
     add("| --- | --- |")
-    add("| `yoloxx20` | ByteTrack's published YOLOX-X MOT20 detector, `test_size=(896,1600)`, `nmsthre=0.7`, `test_conf=0.001` |")
+    add("| `yoloxx20` | Supplied prebuilt YOLOX-X MOT20 detection bundle; described as MOT20-train-trained but its weights are not on disk and are **not** ByteTrack's release |")
+    add("| `yoloxx20-official` | ByteTrack's released YOLOX-X MOT20 detector, `bytetrack_x_mot20.tar`, `test_size=(896,1600)`, `nmsthre=0.7`, emitted at score >= 0.10 |")
     add("| `rfdetr2xl-e5-t005` | RF-DETR 2XL arm-A epoch-5 checkpoint, export score threshold 0.05 |")
     add("| `rfdetr2xl-e5-t010` | same checkpoint, export score threshold 0.10 |")
     add("| `rfdetr2xl-e5-t010-nms070` | threshold 0.10 then greedy NMS at IoU 0.70 |")
@@ -613,8 +710,54 @@ def build() -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=REPO_ROOT / "docs" / "results-reference.md")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help=(
+            "regenerate into memory and diff against the file on disk without writing. "
+            "Exits 1 if they differ, so CI or a pre-commit hook can catch a stale document."
+        ),
+    )
     args = parser.parse_args()
     document = build()
+
+    if args.check:
+        if not args.output.exists():
+            raise SystemExit(f"{args.output} does not exist; run without --check to create it")
+        current = args.output.read_text(encoding="utf-8")
+        if current == document:
+            print(f"{args.output.name} is up to date ({len(document.splitlines())} lines)")
+            return
+        # The generation date line always differs on a later day, so report it
+        # separately rather than letting it mask a real content change.
+        difference = list(
+            unified_diff(
+                current.splitlines(),
+                document.splitlines(),
+                fromfile=f"{args.output.name} (on disk)",
+                tofile=f"{args.output.name} (regenerated)",
+                lineterm="",
+                n=1,
+            )
+        )
+        changed = [
+            line
+            for line in difference
+            if line.startswith(("+", "-"))
+            and not line.startswith(("+++", "---"))
+            and "Generated 2" not in line
+        ]
+        print("\n".join(difference))
+        if not changed:
+            print(
+                f"\n{args.output.name} differs only in the generation date; content is up to date."
+            )
+            return
+        raise SystemExit(
+            f"\n{args.output} is stale: {len(changed)} changed lines beyond the generation date. "
+            "Re-run without --check."
+        )
+
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(document, encoding="utf-8")
     print(f"wrote {args.output} ({len(document.splitlines())} lines)")

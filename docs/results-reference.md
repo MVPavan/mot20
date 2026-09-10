@@ -1,15 +1,13 @@
 # Consolidated Results Reference
 
-Generated 2026-09-08 by `tracking/scripts/build_results_reference.py`.
+Generated 2026-09-09 by `tracking/scripts/build_results_reference.py`.
 **Do not edit by hand** — re-run the generator after any new experiment.
 
-Every *measured result* below — detection accuracy, localization, tracking,
-training curves, geometry probes, dataset audits — is read at generation time
-from a stored manifest, metrics CSV, or analysis JSON, so those cannot drift
-from the artifacts. A small number of descriptive constants are still literals
-in the generator rather than artifact reads: the frame and identity counts in
-1.1, the size/density block in 1.3, the source-domain comparison in 2.1, and
-the effective-geometry line in 3. Treat those four as transcribed, not derived.
+Every number below — detection accuracy, localization, tracking, training
+curves, geometry probes, dataset audits, and the dataset statistics in 1.1,
+1.3 and 2.1 — is read at generation time from a stored manifest, metrics CSV,
+or analysis JSON, or computed here from image dimensions. Nothing is
+transcribed, so nothing can drift from the artifacts.
 
 Interpretation and conclusions live in `docs/experiment-report.md`;
 detector-gap root-cause analysis in `docs/tracker-improvements.md`;
@@ -24,12 +22,19 @@ This file is numbers only.
   (`tracking/scripts/run_boosttrack.py`) and the vendored TrackEval. The
   `yoloxx20` baseline is **measured here**, not quoted from the BoostTrack++ repo
   or paper. Only the detection file differs between a baseline row and an RF-DETR row.
-- **The `yoloxx20` baseline is not held out on this split.** Its detections come
-  from `bytetrack_x_mot20.tar`, trained on the full MOT20 train set, of which
-  `val_half` is the second half. Every RF-DETR-vs-baseline delta here is measured
-  against a detector that saw the evaluation frames in training; RF-DETR-vs-RF-DETR
-  deltas are unaffected. No YOLOX weights are on disk, so the detector identity
-  rests on `datasets/README.md` and BoostTrack's config mapping, not a checksum.
+- **There are two YOLOX baselines and they are different models.**
+  `yoloxx20` is a supplied prebuilt detection bundle of unknown exact weights;
+  `yoloxx20-official` is ByteTrack's released `bytetrack_x_mot20.tar`
+  (sha256 `021d7bc4…de89de64`), inferred here by
+  `tracking/scripts/infer_yoloxx20.py`. The official checkpoint does **not**
+  reproduce the supplied bundle and is markedly stronger: mAP@50:95 0.7135 vs
+  0.6759, HOTA 76.543 vs 70.208. Never pool them. Comparisons against the
+  supplied bundle understate the real ByteTrack baseline by ~6.3 HOTA.
+  See `docs/mot20-train-evaluation.md` section 1 and `mot-n2n.4`.
+- **Neither YOLOX baseline is held out on this split.** Both were trained on the
+  full MOT20 train set, of which `val_half` is the second half. Every
+  RF-DETR-vs-baseline delta here is measured against a detector that saw the
+  evaluation frames in training; RF-DETR-vs-RF-DETR deltas are unaffected.
   See `docs/experiment-report.md` section 0.
 - All work is classified `local_test_adapted` per `docs/MOTPolicy.md`: the detector's
   training mix contains 21 human-audited Byte65 MOT20-test images, so no result here
@@ -96,15 +101,15 @@ Highest GT-to-GT IoU anywhere in the split: 0.9830.
 
 | Quantity | Value |
 | --- | ---: |
-| Instances per image, mean | 137.8 |
+| Instances per image, mean | 137.83 |
 | Instances per image, max | 220 |
 | COCO size band: small (<32²) | 7,435 (1.2%) |
 | COCO size band: medium | 378,023 (61.5%) |
 | COCO size band: large (≥96²) | 229,679 (37.3%) |
-| Box height percentiles (px) | p5 63, p25 105, median 137, p75 161 |
+| Box height percentiles (px) | p5 63, p25 105, p50 137, p75 161, p95 203 |
 
 For scale, COCO val2017 averages roughly 7 instances per image. MOT20 is about
-19× denser, which is the regime DETR-style one-to-one matching struggles in.
+20× denser, which is the regime DETR-style one-to-one matching struggles in.
 
 ## 2. Training dataset builds
 
@@ -121,11 +126,18 @@ deliberately empty `valid` split so validation cannot drive checkpoint selection
 
 ### 2.1 Source-domain mismatch inside the mix
 
+Measured on `rfdetr-mot20-crowdhuman-byte65-test-adapted-2026-09-04` at the resolution and long-side cap that build trains with (resolution 1120, `max_size` 1600).
+
 | Quantity | CrowdHuman | MOT20 |
 | --- | ---: | ---: |
-| Persons per image, mean | 22.7 | 116.3 |
+| Persons per image, mean | 22.67 | 116.27 |
+| Ignore regions, share of boxes | 22.5% | 11.2% |
 | Median long side (px) | 1,024 | 1,654 |
-| Resize scale applied by the training transform | 1.302 (upscaled) | 0.806 (downscaled) |
+| Resize scale applied by the training transform | 1.562 (upscaled) | 0.967 (downscaled) |
+| Median box aspect w/h, vs MOT20 | 0.919 | 1.000 |
+
+The aspect row is the box-shape convention gap: across 4 relative-height bands (range 0.914–0.929), CrowdHuman boxes are consistently narrower per unit height than MOT20's. Interior boxes only,
+so border clipping cannot confound it. Note that this convention gap does **not** reach the predictions: see section 5 and `mot-8r3`.
 
 ## 3. Detector training runs
 
@@ -272,30 +284,30 @@ variant. Values are read from the accumulator directly, because pycocotools'
 `summarize()` computes the headline AP with a hardcoded `maxDets = 100` that is
 absent from this list and silently yields −1.
 
-| Metric | `rfdetr2xl-armd-e9-t005` | `rfdetr2xl-armd-e9-t010-nms070` | `rfdetr2xl-e5-t005` | `rfdetr2xl-e5-t010` | `rfdetr2xl-e5-t010-nms070` | `yoloxx20` | `rfdetr2xl-armc-e9-t005` |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| mAP@50 | 0.9663 | 0.9528 | 0.9585 | 0.9585 | 0.9510 | 0.9000 | 0.9572 |
-| mAP@75 | 0.7716 | 0.7603 | 0.7595 | 0.7549 | 0.7483 | 0.8278 | 0.7423 |
-| mAP@50:95 | 0.6446 | 0.6351 | 0.6369 | 0.6337 | 0.6297 | 0.6759 | 0.6258 |
-| AR@50:95 | 0.7018 | 0.6892 | 0.6957 | 0.6883 | 0.6811 | 0.7104 | 0.6919 |
-| mAP small | 0.1726 | 0.1698 | 0.1651 | 0.1628 | 0.1626 | 0.3074 | 0.1549 |
-| mAP medium | 0.6030 | 0.5963 | 0.5983 | 0.5948 | 0.5895 | 0.6536 | 0.5901 |
-| mAP large | 0.7170 | 0.7110 | 0.7058 | 0.7043 | 0.6995 | 0.7216 | 0.6943 |
-| boxes total | 1,261,854 | 873,131 | 1,265,422 | 949,595 | 865,842 | 580,369 | 1,328,762 |
-| boxes/frame mean | 282.74 | 195.64 | 283.54 | 212.77 | 194.00 | 130.04 | 297.73 |
-| boxes/frame max | 383 | 326 | 386 | 355 | 331 | 213 | 390 |
-| dup pairs/frame @IoU≥0.75 | 31.400 | 0.000 | 33.219 | 13.764 | 0.000 | 0.000 | 48.984 |
-| frames with duplicates | 4,463 | 0 | 4,463 | 4,450 | 0 | 0 | 4,463 |
-| box height median (px) | 128.0 | 132.7 | 127.3 | 132.3 | 132.7 | 135.5 | 128.7 |
+| Metric | `rfdetr2xl-armd-e9-t005` | `rfdetr2xl-armd-e9-t010-nms070` | `rfdetr2xl-e5-t005` | `rfdetr2xl-e5-t010` | `rfdetr2xl-e5-t010-nms070` | `yoloxx20` | `rfdetr2xl-armc-e9-t005` | `rfdetr2xl-i4-e8-t005` | `rfdetr2xl-i4-e8-t010-nms070` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| mAP@50 | 0.9663 | 0.9528 | 0.9585 | 0.9585 | 0.9510 | 0.9000 | 0.9572 | 0.9848 | 0.9769 |
+| mAP@75 | 0.7716 | 0.7603 | 0.7595 | 0.7549 | 0.7483 | 0.8278 | 0.7423 | 0.8808 | 0.8685 |
+| mAP@50:95 | 0.6446 | 0.6351 | 0.6369 | 0.6337 | 0.6297 | 0.6759 | 0.6258 | 0.7178 | 0.7113 |
+| AR@50:95 | 0.7018 | 0.6892 | 0.6957 | 0.6883 | 0.6811 | 0.7104 | 0.6919 | 0.7645 | 0.7552 |
+| mAP small | 0.1726 | 0.1698 | 0.1651 | 0.1628 | 0.1626 | 0.3074 | 0.1549 | 0.3030 | 0.3012 |
+| mAP medium | 0.6030 | 0.5963 | 0.5983 | 0.5948 | 0.5895 | 0.6536 | 0.5901 | 0.6923 | 0.6860 |
+| mAP large | 0.7170 | 0.7110 | 0.7058 | 0.7043 | 0.6995 | 0.7216 | 0.6943 | 0.7628 | 0.7598 |
+| boxes total | 1,261,854 | 873,131 | 1,265,422 | 949,595 | 865,842 | 580,369 | 1,328,762 | 1,278,070 | 884,369 |
+| boxes/frame mean | 282.74 | 195.64 | 283.54 | 212.77 | 194.00 | 130.04 | 297.73 | 286.37 | 198.16 |
+| boxes/frame max | 383 | 326 | 386 | 355 | 331 | 213 | 390 | 386 | 321 |
+| dup pairs/frame @IoU≥0.75 | 31.400 | 0.000 | 33.219 | 13.764 | 0.000 | 0.000 | 48.984 | 28.923 | 0.000 |
+| frames with duplicates | 4,463 | 0 | 4,463 | 4,450 | 0 | 0 | 4,463 | 4,463 | 0 |
+| box height median (px) | 128.0 | 132.7 | 127.3 | 132.3 | 132.7 | 135.5 | 128.7 | 125.3 | 130.8 |
 
 Survivors at a score threshold:
 
-| Threshold | `rfdetr2xl-armd-e9-t005` | `rfdetr2xl-armd-e9-t010-nms070` | `rfdetr2xl-e5-t005` | `rfdetr2xl-e5-t010` | `rfdetr2xl-e5-t010-nms070` | `yoloxx20` | `rfdetr2xl-armc-e9-t005` |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| ≥ 0.10 | 958,353 | 873,131 | 949,595 | 949,595 | 865,842 | 580,369 | 972,608 |
-| ≥ 0.40 | 644,154 | 639,978 | 638,477 | 638,477 | 634,487 | 553,800 | 642,078 |
-| ≥ 0.50 | 624,672 | 621,907 | 617,411 | 617,411 | 614,858 | 548,609 | 621,741 |
-| ≥ 0.60 | 604,965 | 603,045 | 594,635 | 594,635 | 592,964 | 542,704 | 601,190 |
+| Threshold | `rfdetr2xl-armd-e9-t005` | `rfdetr2xl-armd-e9-t010-nms070` | `rfdetr2xl-e5-t005` | `rfdetr2xl-e5-t010` | `rfdetr2xl-e5-t010-nms070` | `yoloxx20` | `rfdetr2xl-armc-e9-t005` | `rfdetr2xl-i4-e8-t005` | `rfdetr2xl-i4-e8-t010-nms070` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| ≥ 0.10 | 958,353 | 873,131 | 949,595 | 949,595 | 865,842 | 580,369 | 972,608 | 971,575 | 884,369 |
+| ≥ 0.40 | 644,154 | 639,978 | 638,477 | 638,477 | 634,487 | 553,800 | 642,078 | 646,434 | 642,247 |
+| ≥ 0.50 | 624,672 | 621,907 | 617,411 | 617,411 | 614,858 | 548,609 | 621,741 | 628,963 | 626,091 |
+| ≥ 0.60 | 604,965 | 603,045 | 594,635 | 594,635 | 592,964 | 542,704 | 601,190 | 612,133 | 610,017 |
 
 **The baseline detector has the higher mAP@50:95.** RF-DETR leads only at IoU 0.5.
 
@@ -335,8 +347,7 @@ trained geometry, so resolution is a training-time fix.
 | `val/loss_bbox` | 0.0171 | 0.0185 | 0.0193 |
 | `val/loss_giou` | 0.1949 | 0.2253 | 0.2170 |
 
-Effective input geometry at 1920×1080: cap 1333 → 1333×750 (scale 0.694);
-cap 1600 → 1600×900 (0.833); cap 1920 → 1920×1080 (1.000). The baseline
+Effective input geometry at 1920×1080: cap 1333 → 1333x750 (0.694), cap 1600 → 1600x900 (0.833), cap 1920 → 1920x1080 (1.000). The baseline
 YOLOX-X runs at `test_size = (896, 1600)` → 1593×896, scale 0.830.
 
 ## 5. Localization quality
@@ -426,7 +437,8 @@ Detector slug legend:
 
 | Slug | Meaning |
 | --- | --- |
-| `yoloxx20` | ByteTrack's published YOLOX-X MOT20 detector, `test_size=(896,1600)`, `nmsthre=0.7`, `test_conf=0.001` |
+| `yoloxx20` | Supplied prebuilt YOLOX-X MOT20 detection bundle; described as MOT20-train-trained but its weights are not on disk and are **not** ByteTrack's release |
+| `yoloxx20-official` | ByteTrack's released YOLOX-X MOT20 detector, `bytetrack_x_mot20.tar`, `test_size=(896,1600)`, `nmsthre=0.7`, emitted at score >= 0.10 |
 | `rfdetr2xl-e5-t005` | RF-DETR 2XL arm-A epoch-5 checkpoint, export score threshold 0.05 |
 | `rfdetr2xl-e5-t010` | same checkpoint, export score threshold 0.10 |
 | `rfdetr2xl-e5-t010-nms070` | threshold 0.10 then greedy NMS at IoU 0.70 |
@@ -441,8 +453,12 @@ Generic domain-generalized ReID. These rows are held out: the model has never se
 
 | Run | HOTA | DetA | AssA | LocA | MOTA | IDF1 | IDSW | IDs |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `yoloxx20-official` — defaults | 76.543 | 79.495 | 73.768 | 87.627 | 92.396 | 88.714 | 1,321 | 2,585 |
+| `rfdetr2xl-i4-e8-t010-nms070` — defaults | 75.865 | 78.806 | 73.110 | 87.480 | 91.986 | 88.637 | 1,145 | 2,046 |
+| `rfdetr2xl-armd-e9-t015-nms070` — defaults | 70.883 | 72.976 | 68.983 | 85.321 | 87.979 | 85.838 | 1,269 | 2,303 |
 | `rfdetr2xl-armd-e9-t010-nms070` — `max_age=70` | 70.875 | 72.970 | 68.974 | 85.322 | 87.965 | 85.795 | 1,258 | 2,290 |
 | `rfdetr2xl-armd-e9-t010-nms070` — `lambda_iou=0.65` | 70.814 | 72.990 | 68.836 | 85.321 | 87.976 | 85.665 | 1,254 | 2,313 |
+| `rfdetr2xl-armd-e9-t020-nms070` — defaults | 70.804 | 73.026 | 68.781 | 85.335 | 88.008 | 85.741 | 1,250 | 2,277 |
 | `rfdetr2xl-armd-e9-t010-nms070` — defaults | 70.777 | 72.979 | 68.775 | 85.321 | 87.976 | 85.637 | 1,262 | 2,312 |
 | `rfdetr2xl-armd-e9-t010-nms070` — `lambda_shape=0.35` | 70.758 | 72.983 | 68.734 | 85.321 | 87.973 | 85.632 | 1,257 | 2,308 |
 | `rfdetr2xl-armd-e9-t010-nms070` — `iou_threshold=0.35` | 70.717 | 72.985 | 68.654 | 85.325 | 87.973 | 85.499 | 1,273 | 2,367 |
@@ -450,6 +466,7 @@ Generic domain-generalized ReID. These rows are held out: the model has never se
 | `rfdetr2xl-armd-e9-t010-nms070` — `iou_threshold=0.25` | 70.713 | 72.953 | 68.678 | 85.314 | 87.981 | 85.655 | 1,241 | 2,270 |
 | `rfdetr2xl-armd-e9-t010-nms070` — `lambda_iou=0.35` | 70.695 | 72.991 | 68.606 | 85.325 | 87.960 | 85.517 | 1,284 | 2,312 |
 | `rfdetr2xl-armd-e9-t010-nms070` — `lambda_iou=0.25` | 70.689 | 72.974 | 68.610 | 85.324 | 87.946 | 85.529 | 1,296 | 2,300 |
+| `rfdetr2xl-armd-e9-t005-nms070` — defaults | 70.688 | 72.990 | 68.592 | 85.323 | 87.982 | 85.469 | 1,256 | 2,309 |
 | `rfdetr2xl-armd-e9-t010-nms070` — `iou_threshold=0.25`, `lambda_iou=0.35` | 70.682 | 72.945 | 68.625 | 85.316 | 87.958 | 85.559 | 1,268 | 2,263 |
 | `rfdetr2xl-armd-e9-t010-nms070` — `lambda_iou=0.2` | 70.663 | 72.988 | 68.547 | 85.329 | 87.941 | 85.425 | 1,305 | 2,303 |
 | `rfdetr2xl-armd-e9-t010-nms070` — `min_hits=4` | 70.659 | 72.792 | 68.720 | 85.367 | 87.732 | 85.620 | 1,176 | 2,185 |
@@ -457,10 +474,16 @@ Generic domain-generalized ReID. These rows are held out: the model has never se
 | `rfdetr2xl-armd-e9-t010-nms070` — `max_age=30` | 70.627 | 72.968 | 68.497 | 85.324 | 87.952 | 85.263 | 1,295 | 2,374 |
 | `rfdetr2xl-armd-e9-t010-nms070` — `lambda_mhd=0.35` | 70.592 | 72.931 | 68.463 | 85.317 | 87.946 | 85.412 | 1,292 | 2,313 |
 | `rfdetr2xl-armd-e9-t010-nms070` — `min_hits=5` | 70.520 | 72.576 | 68.651 | 85.407 | 87.461 | 85.574 | 1,078 | 2,084 |
+| `rfdetr2xl-armd-e9-t010-nms075` — defaults | 70.513 | 73.139 | 68.119 | 85.312 | 88.160 | 85.078 | 1,333 | 2,369 |
 | `rfdetr2xl-armd-e9-t010-nms070` — `iou_threshold=0.25`, `lambda_iou=0.35`, `lambda_shape=0.35`, `max_age=30` | 70.500 | 72.905 | 68.310 | 85.310 | 87.967 | 85.291 | 1,279 | 2,323 |
+| `rfdetr2xl-armd-e9-t010-nms080` — defaults | 70.371 | 73.243 | 67.754 | 85.304 | 88.222 | 84.859 | 1,429 | 2,418 |
 | `yoloxx20` — defaults | 70.208 | 73.496 | 67.133 | 88.177 | 85.031 | 82.536 | 1,013 | 1,762 |
+| `rfdetr2xl-armd-e9-t010` — defaults | 69.825 | 73.107 | 66.836 | 85.281 | 88.059 | 83.854 | 1,763 | 2,579 |
+| `rfdetr2xl-armd-e9-t010-nms060` — defaults | 69.508 | 71.928 | 67.303 | 85.347 | 86.694 | 84.483 | 1,228 | 2,177 |
+| `rfdetr2xl-armb-e1-t010-nms070` — defaults | 68.976 | 71.527 | 66.653 | 85.007 | 86.674 | 83.743 | 1,682 | 2,470 |
 | `rfdetr2xl-e5-t010-nms070` — defaults | 68.809 | 71.928 | 65.965 | 85.190 | 86.883 | 83.255 | 1,571 | 2,309 |
 | `rfdetr2xl-e5-t010-nms0600` — defaults | 68.510 | 70.964 | 66.272 | 85.212 | 85.749 | 83.388 | 1,427 | 2,162 |
+| `rfdetr2xl-armc-e9-t010-nms070` — defaults | 68.477 | 71.373 | 65.839 | 84.910 | 86.615 | 83.366 | 1,654 | 2,412 |
 | `rfdetr2xl-e5-t005` — `det_thresh=0.50` | 68.353 | 71.683 | 65.311 | 85.321 | 86.457 | 82.793 | 1,615 | 2,208 |
 | `rfdetr2xl-e5-t010` — defaults | 68.175 | 72.068 | 64.640 | 85.137 | 87.012 | 81.874 | 2,065 | 2,624 |
 | `rfdetr2xl-e5-t005` — defaults | 68.080 | 71.996 | 64.526 | 85.128 | 87.007 | 81.805 | 2,113 | 2,662 |
@@ -471,8 +494,12 @@ Generic domain-generalized ReID. These rows are held out: the model has never se
 
 | Run | DetPr | DetRe | AssPr | AssRe | MOTP | Frag | MT | ML | CLR_TP | CLR_FP | CLR_FN |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `yoloxx20-official` — defaults | 85.953 | 84.267 | 84.486 | 78.179 | 86.328 | 2,291 | 1,269 | 41 | 586,378 | 16,696 | 28,759 |
+| `rfdetr2xl-i4-e8-t010-nms070` — defaults | 86.204 | 83.137 | 83.876 | 77.724 | 86.213 | 2,913 | 1,244 | 40 | 580,119 | 13,132 | 35,018 |
+| `rfdetr2xl-armd-e9-t015-nms070` — defaults | 82.309 | 78.246 | 81.315 | 73.619 | 83.545 | 3,719 | 1,173 | 51 | 563,615 | 21,156 | 51,522 |
 | `rfdetr2xl-armd-e9-t010-nms070` — `max_age=70` | 82.288 | 78.257 | 81.334 | 73.631 | 83.546 | 3,687 | 1,169 | 51 | 563,688 | 21,322 | 51,449 |
 | `rfdetr2xl-armd-e9-t010-nms070` — `lambda_iou=0.65` | 82.302 | 78.266 | 81.430 | 73.449 | 83.545 | 3,686 | 1,171 | 51 | 563,697 | 21,270 | 51,440 |
+| `rfdetr2xl-armd-e9-t020-nms070` — defaults | 82.406 | 78.221 | 81.232 | 73.438 | 83.554 | 3,663 | 1,168 | 52 | 563,258 | 20,638 | 51,879 |
 | `rfdetr2xl-armd-e9-t010-nms070` — defaults | 82.300 | 78.256 | 81.295 | 73.428 | 83.545 | 3,704 | 1,171 | 51 | 563,675 | 21,242 | 51,462 |
 | `rfdetr2xl-armd-e9-t010-nms070` — `lambda_shape=0.35` | 82.301 | 78.260 | 81.283 | 73.412 | 83.548 | 3,693 | 1,171 | 51 | 563,671 | 21,261 | 51,466 |
 | `rfdetr2xl-armd-e9-t010-nms070` — `iou_threshold=0.35` | 82.313 | 78.252 | 81.388 | 73.227 | 83.547 | 3,714 | 1,172 | 51 | 563,606 | 21,178 | 51,531 |
@@ -480,6 +507,7 @@ Generic domain-generalized ReID. These rows are held out: the model has never se
 | `rfdetr2xl-armd-e9-t010-nms070` — `iou_threshold=0.25` | 82.285 | 78.238 | 81.102 | 73.364 | 83.546 | 3,699 | 1,170 | 52 | 563,664 | 21,220 | 51,473 |
 | `rfdetr2xl-armd-e9-t010-nms070` — `lambda_iou=0.35` | 82.316 | 78.257 | 81.192 | 73.297 | 83.548 | 3,731 | 1,172 | 51 | 563,580 | 21,220 | 51,557 |
 | `rfdetr2xl-armd-e9-t010-nms070` — `lambda_iou=0.25` | 82.315 | 78.238 | 81.273 | 73.271 | 83.550 | 3,749 | 1,172 | 51 | 563,478 | 21,193 | 51,659 |
+| `rfdetr2xl-armd-e9-t005-nms070` — defaults | 82.327 | 78.246 | 81.161 | 73.292 | 83.543 | 3,706 | 1,170 | 52 | 563,556 | 21,089 | 51,581 |
 | `rfdetr2xl-armd-e9-t010-nms070` — `iou_threshold=0.25`, `lambda_iou=0.35` | 82.284 | 78.231 | 80.997 | 73.388 | 83.543 | 3,723 | 1,172 | 52 | 563,583 | 21,255 | 51,554 |
 | `rfdetr2xl-armd-e9-t010-nms070` — `lambda_iou=0.2` | 82.327 | 78.245 | 81.302 | 73.192 | 83.551 | 3,764 | 1,169 | 51 | 563,447 | 21,186 | 51,690 |
 | `rfdetr2xl-armd-e9-t010-nms070` — `min_hits=4` | 82.634 | 77.773 | 81.512 | 73.244 | 83.599 | 3,368 | 1,151 | 57 | 559,897 | 19,048 | 55,240 |
@@ -487,10 +515,16 @@ Generic domain-generalized ReID. These rows are held out: the model has never se
 | `rfdetr2xl-armd-e9-t010-nms070` — `max_age=30` | 82.307 | 78.239 | 81.421 | 73.086 | 83.548 | 3,711 | 1,172 | 51 | 563,530 | 21,207 | 51,607 |
 | `rfdetr2xl-armd-e9-t010-nms070` — `lambda_mhd=0.35` | 82.284 | 78.215 | 81.064 | 73.201 | 83.549 | 3,737 | 1,174 | 51 | 563,498 | 21,219 | 51,639 |
 | `rfdetr2xl-armd-e9-t010-nms070` — `min_hits=5` | 82.893 | 77.327 | 81.691 | 73.069 | 83.644 | 3,114 | 1,129 | 61 | 556,459 | 17,373 | 58,678 |
+| `rfdetr2xl-armd-e9-t010-nms075` — defaults | 82.231 | 78.495 | 80.828 | 72.838 | 83.523 | 3,611 | 1,182 | 53 | 565,413 | 21,775 | 49,724 |
 | `rfdetr2xl-armd-e9-t010-nms070` — `iou_threshold=0.25`, `lambda_iou=0.35`, `lambda_shape=0.35`, `max_age=30` | 82.275 | 78.194 | 81.103 | 73.018 | 83.548 | 3,701 | 1,173 | 52 | 563,512 | 21,117 | 51,625 |
+| `rfdetr2xl-armd-e9-t010-nms080` — defaults | 82.203 | 78.629 | 80.748 | 72.527 | 83.508 | 3,588 | 1,183 | 52 | 566,255 | 22,142 | 48,882 |
 | `yoloxx20` — defaults | 87.688 | 76.687 | 83.337 | 71.174 | 87.084 | 5,243 | 1,021 | 47 | 531,015 | 6,947 | 84,122 |
+| `rfdetr2xl-armd-e9-t010` — defaults | 82.056 | 78.602 | 81.112 | 71.346 | 83.477 | 3,796 | 1,186 | 53 | 566,342 | 22,896 | 48,795 |
+| `rfdetr2xl-armd-e9-t010-nms060` — defaults | 82.519 | 76.898 | 80.545 | 71.991 | 83.594 | 4,298 | 1,135 | 54 | 553,874 | 19,359 | 61,263 |
+| `rfdetr2xl-armb-e1-t010-nms070` — defaults | 81.666 | 76.903 | 80.216 | 71.440 | 83.190 | 4,231 | 1,145 | 56 | 557,055 | 22,207 | 58,082 |
 | `rfdetr2xl-e5-t010-nms070` — defaults | 82.300 | 76.952 | 79.746 | 70.981 | 83.357 | 4,289 | 1,139 | 57 | 555,593 | 19,570 | 59,544 |
 | `rfdetr2xl-e5-t010-nms0600` — defaults | 82.484 | 75.728 | 80.125 | 71.121 | 83.427 | 4,727 | 1,096 | 58 | 546,826 | 17,928 | 68,311 |
+| `rfdetr2xl-armc-e9-t010-nms070` — defaults | 81.786 | 76.539 | 79.836 | 70.556 | 83.067 | 4,385 | 1,132 | 64 | 555,062 | 20,610 | 60,075 |
 | `rfdetr2xl-e5-t005` — `det_thresh=0.50` | 83.203 | 75.982 | 80.923 | 69.624 | 83.520 | 4,612 | 1,093 | 70 | 547,597 | 14,154 | 67,540 |
 | `rfdetr2xl-e5-t010` — defaults | 82.105 | 77.256 | 80.130 | 69.321 | 83.321 | 4,482 | 1,149 | 56 | 558,058 | 20,750 | 57,079 |
 | `rfdetr2xl-e5-t005` — defaults | 82.104 | 77.175 | 80.341 | 69.086 | 83.334 | 4,533 | 1,148 | 57 | 557,766 | 20,440 | 57,371 |
@@ -505,6 +539,8 @@ BoostTrack++'s published ReID. MOT20-trained, so it has seen `val_half` identiti
 
 | Run | HOTA | DetA | AssA | LocA | MOTA | IDF1 | IDSW | IDs |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `yoloxx20-official` — defaults | 76.169 | 79.549 | 73.005 | 87.646 | 92.337 | 87.587 | 1,502 | 2,905 |
+| `rfdetr2xl-armd-e9-t010-nms070` — defaults | 70.911 | 73.004 | 69.015 | 85.328 | 87.920 | 85.733 | 1,392 | 2,488 |
 | `yoloxx20` — `lambda_iou=0.35` | 70.734 | 73.587 | 68.059 | 88.210 | 84.963 | 83.165 | 970 | 1,800 |
 | `yoloxx20` — defaults | 70.547 | 73.610 | 67.677 | 88.210 | 84.973 | 82.877 | 989 | 1,821 |
 | `yoloxx20` — `iou_threshold=0.25`, `lambda_iou=0.35`, `lambda_shape=0.35` | 70.417 | 73.572 | 67.463 | 88.202 | 84.977 | 82.746 | 1,009 | 1,800 |
@@ -532,6 +568,8 @@ BoostTrack++'s published ReID. MOT20-trained, so it has seen `val_half` identiti
 
 | Run | DetPr | DetRe | AssPr | AssRe | MOTP | Frag | MT | ML | CLR_TP | CLR_FP | CLR_FN |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `yoloxx20-official` — defaults | 86.020 | 84.270 | 85.422 | 76.856 | 86.342 | 2,431 | 1,267 | 40 | 586,061 | 16,561 | 29,076 |
+| `rfdetr2xl-armd-e9-t010-nms070` — defaults | 82.329 | 78.259 | 82.170 | 73.245 | 83.543 | 3,807 | 1,173 | 52 | 563,473 | 21,251 | 51,664 |
 | `yoloxx20` — `lambda_iou=0.35` | 87.797 | 76.709 | 84.609 | 71.825 | 87.106 | 5,335 | 1,014 | 47 | 530,530 | 6,924 | 84,607 |
 | `yoloxx20` — defaults | 87.802 | 76.729 | 84.359 | 71.469 | 87.098 | 5,310 | 1,014 | 47 | 530,629 | 6,937 | 84,508 |
 | `yoloxx20` — `iou_threshold=0.25`, `lambda_iou=0.35`, `lambda_shape=0.35` | 87.771 | 76.710 | 84.022 | 71.416 | 87.095 | 5,322 | 1,013 | 47 | 530,674 | 6,943 | 84,463 |

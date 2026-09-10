@@ -17,6 +17,33 @@ naming live in [`docs/tracker-experiments.md`](tracker-experiments.md).
 
 ## Read this first
 
+> ## ⚠ SUPERSEDED 2026-09-09: THE BASELINE THIS DOCUMENT COMPARES AGAINST IS THE WRONG MODEL
+>
+> Every "beats the baseline" conclusion below is measured against `yoloxx20`, a
+> supplied prebuilt detection bundle that is **not** ByteTrack's released MOT20
+> detector. `mot-n2n.4` re-ran the actual release
+> (`weights/bytetrack_x_mot20.tar`, sha256 `021d7bc4…de89de64`) over the same
+> `val_half` frames under the identical BoostTrack++ protocol. It is far
+> stronger:
+>
+> | | supplied `yoloxx20` | `yoloxx20-official` |
+> | --- | ---: | ---: |
+> | mAP@50:95 | 0.6759 | **0.7135** |
+> | HOTA (OSNet) | 70.208 | **76.543** |
+>
+> **The headline claim inverts.** Arm D's 70.883 HOTA does not beat the real
+> ByteTrack baseline; it trails it by **5.66 HOTA**. Even the contamination-matched
+> I4 build (75.865) trails it by 0.678. The reported +0.569 / +0.675 RF-DETR wins
+> were an artifact of comparing against a weaker substitute detector.
+>
+> Numbers below remain individually correct as measurements; their *interpretation
+> relative to the baseline* does not survive. See
+> [`docs/mot20-train-evaluation.md`](mot20-train-evaluation.md) section 1,
+> [`docs/results-reference.md`](results-reference.md) sections 7.1 and 7.2, and
+> `mot-n2n.4`. Neither YOLOX is held out on `val_half`; both trained on all of
+> MOT20 train.
+
+
 Four caveats bound everything below.
 
 1. **Nothing here is leaderboard-comparable.** All work is classified
