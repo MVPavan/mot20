@@ -1,0 +1,31 @@
+[run]
+status = "blocked_pending_real_capacity_probe"
+classification = "local_test_adapted"
+ignored_iou_threshold = 0.5
+
+[model]
+name = "RFDETR2XLarge"
+checkpoint = "weights/rfdetr/rf-detr-xxlarge.pth"
+num_classes = 1
+resolution = 880
+amp = true
+gradient_checkpointing = false
+
+[capacity]
+group_detr = 13
+num_queries = 390
+num_select = 390
+eval_max_dets = 390
+
+[training]
+batch_size = 1
+grad_accum_steps = 1
+epochs = 1
+lr = 0.0001
+lr_encoder = 0.00015
+weight_decay = 0.0001
+amp_dtype = "bf16"
+multi_scale = true
+use_ema = true
+eval_interval = 1
+num_workers = 2

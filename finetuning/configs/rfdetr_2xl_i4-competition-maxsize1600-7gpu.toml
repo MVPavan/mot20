@@ -1,0 +1,94 @@
+# I4 competition build: ByteTrack parity, arm-D recipe, seven GPUs.
+#
+# Trains on `rfdetr-mot20-fulltrain-crowdhuman-byte65-test-adapted-2026-09-07`,
+# which folds MOT20 `val_half` into the training mix. THIS DESTROYS THE ONLY
+# HELD-OUT YARDSTICK: no figure in `docs/results-reference.md` can be
+# re-measured against a model trained here. The dataset's `valid` split is
+# formally empty (`formal_empty_validation = true`), so validation cannot drive
+# checkpoint selection and the FINAL checkpoint is the deliverable, not
+# `checkpoint_best_total.pth`.
+#
+# Weights start from the same base as every other arm, not from arm D's
+# checkpoint. Arm D is the ablation that chose this recipe; per the 2026-09-06
+# two-build decision the competition build re-trains from base on the fuller
+# data, so its provenance does not inherit a checkpoint selected on data that is
+# now in its own training set.
+#
+# Deviations from `rfdetr_2xl_i5-arm-d-maxsize1600-bs4.toml`, all deliberate:
+#
+#   devices 8 -> 7        One GPU is reserved for concurrent inference work.
+#                         Effective batch is therefore 4 x 2 x 7 = 56, not 64;
+#                         7 does not divide 64. This run is not being compared
+#                         against the ablation arms, so the change is safe, but
+#                         it does mean step counts here are not interchangeable
+#                         with arm A-D step counts at face value.
+#
+#   epochs 30 -> 8        Matched on optimisation steps, not epochs, which is
+#                         the convention across this workstream. 28,322 images
+#                         at effective batch 56 is 505.75 steps per epoch, so 8
+#                         epochs is about 4,046 steps. Arm D peaked at step
+#                         3,730 (epoch 9 of 30) and stayed on a plateau through
+#                         step ~5,967, so 4,046 lands just past its peak and
+#                         inside its flat region. Taking the final checkpoint at
+#                         that point is the epoch-count output of the ablation.
+#
+#   eval_interval 2 -> 1  The empty `valid` split has never been exercised by
+#                         the training loop. Evaluating every epoch surfaces a
+#                         failure at the first epoch boundary rather than hours
+#                         in. The evaluation itself is near-free on zero images.
+#
+#   checkpoint_interval   5 -> 4, so an 8-epoch run still lands an intermediate
+#                         checkpoint at the halfway point.
+#
+# `warmup_epochs` stays at 1.0. In steps that is 506 here against arm D's 373,
+# which is comparable; scaling it down would make the two runs less alike, not
+# more.
+#
+# `lr_drop = 24` never fires in an 8-epoch run. That matches arm D in practice,
+# where the drop at epoch 24 came 15 epochs after the peak. See I7.
+[run]
+status = "approved"
+classification = "local_test_adapted"
+ignored_iou_threshold = 0.5
+
+[model]
+name = "RFDETR2XLarge"
+checkpoint = "weights/rfdetr/rf-detr-xxlarge.pth"
+num_classes = 1
+resolution = 1120
+max_size = 1600
+amp = true
+gradient_checkpointing = true
+
+[capacity]
+group_detr = 13
+num_queries = 390
+num_select = 390
+eval_max_dets = 390
+
+[training]
+batch_size = 4
+grad_accum_steps = 2
+devices = 7
+strategy = "ddp"
+sync_bn = true
+epochs = 8
+lr = 0.00005
+lr_encoder = 0.000075
+weight_decay = 0.0001
+amp_dtype = "bf16"
+multi_scale = true
+do_random_resize_via_padding = true
+square_resize_div_64 = false
+scale_jitter = false
+use_ema = true
+eval_interval = 1
+warmup_epochs = 1.0
+lr_scheduler = "step"
+lr_drop = 24
+checkpoint_interval = 4
+num_workers = 4
+pin_memory = true
+persistent_workers = true
+save_dataset_grids = false
+seed = 42

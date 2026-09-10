@@ -1,0 +1,1 @@
+"""Detection data, training, and inference helpers."""

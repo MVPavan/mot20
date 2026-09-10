@@ -11,7 +11,8 @@ The repository is currently a scaffold. Do not claim that a framework, package m
 Use this intended layout unless the implementation establishes a better documented pattern:
 
 - `track-viz/` — self-contained MOT20 viewer backend, React UI, tests, configuration, scripts, documentation, and ignored derived artifacts.
-- `src/mot20/` — production packages, with focused modules such as `detection/`, `reid/`, `association/`, `tracking/`, and `evaluation/`.
+- `finetuning/` — self-contained detector fine-tuning package, tests, scripts, and RF-DETR documentation.
+- `finetuning/src/mot20/` — detector-training packages, including conversion and RF-DETR integration.
 - `tests/` — automated tests mirroring source paths; keep lightweight fixtures under `tests/fixtures/`.
 - `configs/` — versioned experiment and pipeline configuration. Put tunable values here, not in Python literals.
 - `scripts/` — thin, repeatable entry points for training, inference, conversion, and evaluation.
@@ -40,9 +41,10 @@ Tests should be deterministic and prefer small synthetic MOT sequences over full
 This project uses **bd (Beads)** for durable work items. Run `bd prime` for runtime guidance and read [`.beads/beads.md`](.beads/beads.md) for repository policy.
 
 - Beads tracks durable tasks, bugs, features, decisions, epics, dependencies, and blockers.
+- **Beads owns task status. Markdown owns evidence.** Do not reintroduce task checklists into documentation: `docs/tracker-todo.md` and `finetuning/docs/status/2026-09-04-finetuning-blockers-todo.md` existed only because `bd` was off `PATH` and were deleted on 2026-09-08 when the work moved into Beads. For status use `bd ready`, `bd list --status=in_progress`, `bd list --status=open`.
 - The current turn's plan/checklist tracks execution steps; do not create one issue per step.
 - Durable verified knowledge belongs in `.claude/project/learnings.md`, not `bd remember`.
-- Experiment metrics and provenance belong in maintained experiment documentation or a future tracker, not only in an issue description.
+- Experiment metrics and provenance belong in maintained experiment documentation, never only in an issue description. An issue names the document that holds its numbers; it does not copy them. Authoritative evidence lives in `docs/results-reference.md` (generated), `docs/experiment-report.md`, `docs/tracker-experiments.md`, `docs/tracker-improvements.md`, and `finetuning/experiments.md`.
 
 ## Agent Harness
 
