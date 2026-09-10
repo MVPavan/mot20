@@ -184,3 +184,39 @@ def validate_detections(
         "min_score": round(min_score, 4),
         "max_score": round(max_score, 4),
     }
+
+
+def greedy_nms(rows: np.ndarray, iou_threshold: float) -> np.ndarray:
+    """Return a row-order boolean mask keeping the greedy-NMS survivors.
+
+    Standard score-descending suppression, matching what a detector with
+    built-in NMS would have applied before writing its detections. RF-DETR's
+    set prediction applies none, so this is how an RF-DETR export is made
+    comparable to the published YOLOX detections, which were filtered at 0.7.
+
+    ``rows`` is the ``(N, 5)`` layout used throughout this module: ``x1, y1,
+    x2, y2, score``. Boxes with zero or inverted extent must already have been
+    dropped; a zero-area box would make the union zero and the IoU undefined.
+    """
+    if rows.shape[0] == 0:
+        return np.zeros((0,), dtype=bool)
+    boxes = rows[:, :4].astype(np.float64)
+    scores = rows[:, 4].astype(np.float64)
+    areas = np.maximum(boxes[:, 2] - boxes[:, 0], 0) * np.maximum(boxes[:, 3] - boxes[:, 1], 0)
+    order = np.argsort(-scores)
+    keep = np.zeros(rows.shape[0], dtype=bool)
+    while order.size:
+        current = order[0]
+        keep[current] = True
+        if order.size == 1:
+            break
+        rest = order[1:]
+        left = np.maximum(boxes[current, 0], boxes[rest, 0])
+        top = np.maximum(boxes[current, 1], boxes[rest, 1])
+        right = np.minimum(boxes[current, 2], boxes[rest, 2])
+        bottom = np.minimum(boxes[current, 3], boxes[rest, 3])
+        inter = np.maximum(right - left, 0) * np.maximum(bottom - top, 0)
+        union = areas[current] + areas[rest] - inter
+        iou = np.where(union > 0, inter / np.maximum(union, 1e-9), 0.0)
+        order = rest[iou < iou_threshold]
+    return keep

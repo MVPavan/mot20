@@ -32,42 +32,13 @@ from mot20_tracking.artifacts import (  # noqa: E402
 )
 from mot20_tracking.detections import (  # noqa: E402
     SequenceDetections,
+    greedy_nms,
     read_detections,
     validate_detections,
     write_detections,
 )
 from mot20_tracking.sequences import read_split  # noqa: E402
 from mot20_tracking.variants import validate_slug  # noqa: E402
-
-
-def greedy_nms(rows: np.ndarray, iou_threshold: float) -> np.ndarray:
-    """Return a row-order boolean mask keeping the greedy-NMS survivors.
-
-    Standard score-descending suppression, matching what a detector with
-    built-in NMS would have applied before writing its detections.
-    """
-    if rows.shape[0] == 0:
-        return np.zeros((0,), dtype=bool)
-    boxes = rows[:, :4].astype(np.float64)
-    scores = rows[:, 4].astype(np.float64)
-    areas = np.maximum(boxes[:, 2] - boxes[:, 0], 0) * np.maximum(boxes[:, 3] - boxes[:, 1], 0)
-    order = np.argsort(-scores)
-    keep = np.zeros(rows.shape[0], dtype=bool)
-    while order.size:
-        current = order[0]
-        keep[current] = True
-        if order.size == 1:
-            break
-        rest = order[1:]
-        left = np.maximum(boxes[current, 0], boxes[rest, 0])
-        top = np.maximum(boxes[current, 1], boxes[rest, 1])
-        right = np.minimum(boxes[current, 2], boxes[rest, 2])
-        bottom = np.minimum(boxes[current, 3], boxes[rest, 3])
-        inter = np.maximum(right - left, 0) * np.maximum(bottom - top, 0)
-        union = areas[current] + areas[rest] - inter
-        iou = np.where(union > 0, inter / np.maximum(union, 1e-9), 0.0)
-        order = rest[iou < iou_threshold]
-    return keep
 
 
 def parse_args() -> argparse.Namespace:
@@ -208,9 +179,16 @@ def main() -> None:
             "variant": args.target,
             "split": args.split,
             "origin": "derived-filter",
-            "description": f"{args.source} filtered to score >= {args.min_score}",
+            # Both filters are recorded. The NMS IoU was previously omitted, so a
+            # variant whose slug advertised NMS carried no record of it and the
+            # manifest could not distinguish "no NMS" from "NMS not written down".
+            "description": (
+                f"{args.source} filtered to score >= {args.min_score}"
+                + ("" if args.nms_iou is None else f", then greedy NMS at IoU {args.nms_iou}")
+            ),
             "derived_from": args.source,
             "min_score": args.min_score,
+            "nms_iou": args.nms_iou,
             "inherited": {
                 key: source_manifest.get(key)
                 for key in ("checkpoint", "checkpoint_sha256", "geometry", "num_select", "nms")

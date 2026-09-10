@@ -15,6 +15,19 @@ Detections are exported at a low threshold on purpose. BoostTrack boosts
 low-confidence detections that match existing tracks *before* applying its own
 cut, so a pre-filtered file silently disables that mechanism. A higher-threshold
 variant can always be derived by filtering; the reverse is impossible.
+
+Score filtering and greedy NMS are available here as ``--min-score`` and
+``--nms-iou``, so the measured-best export (score 0.10, NMS IoU 0.70, worth
++0.63 HOTA) can be produced in one step instead of by a second pass over the
+written files. Both stay **off by default**, and deliberately so: the paragraph
+above is the reason. An export that has already suppressed boxes cannot be
+un-suppressed, so making filtering the default would make the base artifact
+lossy and the derivation one-way. Applying either option requires the variant
+slug to declare it — see ``_require_slug_declares_filtering``.
+
+Note that ``--expected-map`` checksums the *library's* evaluation, which runs
+before any of this filtering. It therefore remains a valid check on export
+geometry, but it does not describe the filtered file that gets written.
 """
 
 from __future__ import annotations
@@ -42,6 +55,7 @@ from mot20_tracking.artifacts import (  # noqa: E402
 )
 from mot20_tracking.detections import (  # noqa: E402
     SequenceDetections,
+    greedy_nms,
     validate_detections,
     write_detections,
 )
@@ -65,10 +79,56 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset-root", required=True, type=Path)
     parser.add_argument("--checkpoint", required=True, type=Path)
     parser.add_argument("--threshold", type=float, default=0.05)
+    parser.add_argument(
+        "--nms-iou",
+        type=float,
+        default=None,
+        help=(
+            "apply greedy NMS at this IoU while exporting. 0.70 is the measured best "
+            "setting (worth +0.63 HOTA); RF-DETR's set prediction applies none. Leaving "
+            "this off keeps the export lossless so filtered variants can be derived from it"
+        ),
+    )
+    parser.add_argument(
+        "--min-score",
+        type=float,
+        default=None,
+        help="drop detections below this score before NMS; distinct from --threshold, "
+        "which is the capture threshold applied inside the validation loop",
+    )
     parser.add_argument("--expected-map", type=float, default=None)
     parser.add_argument("--tolerance", type=float, default=2e-3)
     parser.add_argument("--artifact-root", default="artifacts/tracking")
     return parser.parse_args()
+
+
+def _require_slug_declares_filtering(variant: str, min_score: float | None, nms_iou: float | None) -> None:
+    """Refuse to write a filtered export under a slug that does not say so.
+
+    Every artifact path and cache key in the store is derived from the variant
+    slug, so a filtered export named like a raw one is indistinguishable from it
+    forever afterwards. The repository's convention encodes both settings in the
+    name — ``rfdetr2xl-i4-e8-t010-nms070``. This enforces it rather than trusting
+    the caller to remember.
+    """
+    problems = []
+    if min_score is not None and "-t" not in variant:
+        problems.append(
+            # Convention is the score times 100, zero-padded to three digits:
+            # 0.05 -> t005, 0.10 -> t010, matching -nms070 for IoU 0.70.
+            f"--min-score {min_score} is applied but the slug has no -t<score> segment "
+            f"(convention: -t{int(round(min_score * 100)):03d})"
+        )
+    if nms_iou is not None and "-nms" not in variant:
+        problems.append(
+            f"--nms-iou {nms_iou} is applied but the slug has no -nms<iou> segment "
+            f"(convention: -nms{int(round(nms_iou * 100)):03d})"
+        )
+    if problems:
+        raise SystemExit(
+            f"variant slug {variant!r} does not declare its filtering:\n  "
+            + "\n  ".join(problems)
+        )
 
 
 def _load_image_index(dataset_root: Path) -> dict[int, dict[str, object]]:
@@ -93,6 +153,15 @@ def _load_image_index(dataset_root: Path) -> dict[int, dict[str, object]]:
 def main() -> None:
     args = parse_args()
     validate_slug(args.variant, "detector")
+    _require_slug_declares_filtering(args.variant, args.min_score, args.nms_iou)
+    if args.nms_iou is not None and not 0.0 < args.nms_iou <= 1.0:
+        raise SystemExit(f"--nms-iou must be in (0, 1], got {args.nms_iou}")
+    if args.min_score is not None and args.min_score < args.threshold:
+        raise SystemExit(
+            f"--min-score {args.min_score} is below the capture threshold {args.threshold}; "
+            "detections under the capture threshold were never retained, so this would "
+            "imply a completeness the export does not have"
+        )
     artifacts = TrackingArtifacts(args.artifact_root)
     level_dir = artifacts.detections_dir(args.variant, args.split)
     if artifacts.manifest_path(level_dir).exists():
@@ -204,6 +273,8 @@ def main() -> None:
     # here rather than written. The count is recorded per sequence and in the
     # manifest: dropping is permitted, dropping silently is not.
     degenerate_dropped: dict[str, int] = defaultdict(int)
+    score_dropped = 0
+    nms_suppressed = 0
     for image_id, meta in image_index.items():
         boxes, scores = captured[image_id]
         rows = np.column_stack([boxes, scores]).astype(np.float32) if len(scores) else np.empty((0, 5), np.float32)
@@ -213,6 +284,18 @@ def main() -> None:
             if dropped:
                 degenerate_dropped[str(meta["sequence"])] += dropped
                 rows = rows[keep]
+        # Score filter before NMS, in that order: suppression should be decided
+        # among the boxes that survive, not by boxes that are about to be
+        # discarded. Degenerate boxes are already gone, so NMS never sees a
+        # zero-area box and cannot divide by a zero union.
+        if args.min_score is not None and rows.shape[0]:
+            above = rows[:, 4] >= args.min_score
+            score_dropped += int((~above).sum())
+            rows = rows[above]
+        if args.nms_iou is not None and rows.shape[0]:
+            survivors = greedy_nms(rows, args.nms_iou)
+            nms_suppressed += int((~survivors).sum())
+            rows = rows[survivors]
         by_sequence[str(meta["sequence"])][int(meta["source_frame_id"])] = rows
 
     entries = []
@@ -248,6 +331,12 @@ def main() -> None:
 
     total_degenerate = sum(degenerate_dropped.values())
     print(f"degenerate boxes dropped across the split: {total_degenerate}")
+    if args.min_score is not None:
+        print(f"score filter at {args.min_score}: {score_dropped} detections dropped")
+    if args.nms_iou is not None:
+        print(f"greedy NMS at IoU {args.nms_iou}: {nms_suppressed} detections suppressed")
+    if args.min_score is None and args.nms_iou is None:
+        print("no score filter or NMS applied; this export is lossless")
 
     digest = artifacts.write_manifest(
         level_dir,
@@ -264,7 +353,19 @@ def main() -> None:
             "dataset_root": str(args.dataset_root),
             "export_threshold": args.threshold,
             "num_select": capacity["num_select"],
-            "nms": "none (DETR set prediction)",
+            "min_score": args.min_score,
+            "nms": (
+                f"greedy, IoU {args.nms_iou}, applied at export"
+                if args.nms_iou is not None
+                else "none (DETR set prediction)"
+            ),
+            "nms_iou": args.nms_iou,
+            "filtering": {
+                "order": "degenerate-box drop, then score filter, then NMS",
+                "score_filtered": score_dropped,
+                "nms_suppressed": nms_suppressed,
+                "lossless": args.min_score is None and args.nms_iou is None,
+            },
             "class_filter": {
                 "kept_label": PEDESTRIAN_LABEL,
                 "labels_observed": sorted(label_values),

@@ -211,6 +211,21 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _ecc_cache_name(sequence: str, split: str) -> str:
+    """Return the ``video_name`` BoostTrack should use for this sequence and split.
+
+    BoostTrack caches ECC camera-motion warps in ``repos/BoostTrack/cache/<video_name>.json``
+    keyed by frame index, and writes newly computed ones back. ``val_half``
+    frames are rebased to 1..N, so on any other split the same index names a
+    different image: reusing that cache would apply the wrong warp and then
+    overwrite the file, corrupting both splits. Qualifying the name per split
+    gives each its own cache file.
+
+    ``val_half`` keeps the bare sequence name so the existing cache stays valid.
+    """
+    return sequence if split == "val_half" else f"{sequence}-{split}"
+
+
 def main() -> None:
     args = parse_args()
     combination = Combination(args.detector, args.reid, args.tracker)
@@ -278,6 +293,20 @@ def main() -> None:
 
     sequences = read_split(args.split, repo_root=REPO_ROOT)
 
+    # video_name also selects max_age via GeneralSettings.video_to_frame_rate,
+    # which swallows a lookup miss and returns 30. A split-qualified name would
+    # silently halve max_age from MOT20's 50, so mirror each rate onto the
+    # qualified name and refuse to run if the value moved.
+    for sequence in sequences:
+        cache_name = _ecc_cache_name(sequence.name, args.split)
+        if cache_name != sequence.name:
+            rates = GeneralSettings.video_to_frame_rate
+            if sequence.name not in rates:
+                raise SystemExit(f"no frame rate registered for {sequence.name}; refusing to guess")
+            rates[cache_name] = rates[sequence.name]
+            if GeneralSettings.max_age(cache_name) != GeneralSettings.max_age(sequence.name):
+                raise SystemExit(f"max_age changed for {cache_name}; aborting")
+
     import external  # noqa: F401
     import cv2
     import torch
@@ -291,7 +320,7 @@ def main() -> None:
         detection_file = artifacts.detections_file(args.detector, args.split, sequence.name)
         detections = read_detections(detection_file, sequence.name, sequence.length)
 
-        tracker = BoostTrack(video_name=sequence.name)
+        tracker = BoostTrack(video_name=_ecc_cache_name(sequence.name, args.split))
         if combination.uses_reid:
             payload = np.load(
                 artifacts.embeddings_file(args.detector, args.reid, args.split, sequence.name)

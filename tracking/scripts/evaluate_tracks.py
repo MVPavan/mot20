@@ -6,8 +6,9 @@ from the combination-keyed artifact tree, so a thin staging tree of symlinks is
 built per evaluation rather than reorganising the artifact store around one
 evaluator.
 
-Ground truth is BoostTrack's vendored ``results/gt/MOT20-val``, which is
-span-identical to ``datasets/val_half``.
+Ground truth is BoostTrack's vendored ``results/gt/<BENCHMARK>-<split>``.
+``MOT20-val`` is span-identical to ``datasets/val_half``; ``MOT20-train`` is the
+full-length official ground truth. The mapping lives in ``_EVAL_SPLITS``.
 """
 
 from __future__ import annotations
@@ -29,6 +30,11 @@ from mot20_tracking.artifacts import METRICS_FORMAT, TrackingArtifacts  # noqa: 
 from mot20_tracking.variants import Combination  # noqa: E402
 
 HEADLINE = ("HOTA", "MOTA", "IDF1", "IDSW", "AssA", "DetA", "MT", "ML", "FP", "FN", "Frag")
+
+# Our split name -> TrackEval's, which selects results/gt/<BENCHMARK>-<value>.
+# MOT20 test ships no public ground truth, so it has no entry and cannot be
+# scored locally.
+_EVAL_SPLITS = {"val_half": "val", "train": "train"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -53,9 +59,20 @@ def main() -> None:
     if artifacts.manifest_path(level_dir).exists():
         raise SystemExit(f"metrics already produced: {level_dir}")
 
-    # TrackEval's val split for MOT20 is BoostTrack's vendored half-val ground
-    # truth, which matches datasets/val_half in span and frame numbering.
-    eval_split = "val"
+    # TrackEval names its splits independently of ours and resolves ground truth
+    # to results/gt/<BENCHMARK>-<eval_split>. Its MOT20 "val" is BoostTrack's
+    # vendored half-val ground truth, which matches datasets/val_half in span and
+    # frame numbering; "train" is the full-length official ground truth. Feeding
+    # full-length tracks to the val ground truth makes TrackEval reject every
+    # frame past the half boundary as an invalid timestep.
+    eval_split = _EVAL_SPLITS.get(args.split)
+    if eval_split is None:
+        raise SystemExit(
+            f"no TrackEval split mapped for {args.split!r}; known: {sorted(_EVAL_SPLITS)}"
+        )
+    gt_root = BOOSTTRACK_ROOT / "results" / "gt" / f"{args.benchmark}-{eval_split}"
+    if not gt_root.is_dir():
+        raise SystemExit(f"ground truth not found for split {args.split!r}: {gt_root}")
     staging = level_dir / "trackeval"
     tracker_dir = staging / f"{args.benchmark}-{eval_split}" / str(combination) / "data"
     tracker_dir.mkdir(parents=True, exist_ok=True)
@@ -109,7 +126,7 @@ def main() -> None:
             "split": args.split,
             "benchmark": args.benchmark,
             "evaluator": "vendored TrackEval, run_mot_challenge.py",
-            "ground_truth": "repos/BoostTrack/results/gt/MOT20-val",
+            "ground_truth": f"repos/BoostTrack/results/gt/{args.benchmark}-{eval_split}",
             "sequences": sequences,
             "command": command,
             "headline": headline,

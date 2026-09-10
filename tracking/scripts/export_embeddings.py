@@ -60,10 +60,33 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _require_slug_matches_model(reid: str, test_dataset: bool) -> None:
+    """Refuse to write embeddings whose slug names a different model than was run.
+
+    ``--reid`` only names the artifact directory; ``--test-dataset`` is what
+    actually selects FastReID SBS over the generic OSNet. Nothing tied the two
+    together, so a run could silently store 512-dim OSNet vectors under a
+    ``fastreid-...`` slug and every downstream table would attribute them to the
+    wrong model. The manifest records ``test_dataset`` and ``dimension``
+    faithfully, but only if someone reads it.
+    """
+    expected = {"fastreid": True, "osnet": False}.get(reid.split("-", 1)[0])
+    if expected is None or expected == test_dataset:
+        return
+    wanted = "--test-dataset" if expected else "no --test-dataset"
+    raise SystemExit(
+        f"reid slug {reid!r} names the "
+        f"{'FastReID SBS' if expected else 'generic OSNet'} model but the run selected the "
+        f"{'FastReID SBS' if test_dataset else 'generic OSNet'} model; pass {wanted}, "
+        f"or use a slug that matches what you meant to run"
+    )
+
+
 def main() -> None:
     args = parse_args()
     validate_slug(args.detector, "detector")
     validate_slug(args.reid, "reid")
+    _require_slug_matches_model(args.reid, args.test_dataset)
 
     artifacts = TrackingArtifacts(REPO_ROOT / args.artifact_root)
     detections_dir = artifacts.detections_dir(args.detector, args.split)

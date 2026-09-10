@@ -43,7 +43,7 @@ class SweepPoint:
         return ",".join(self.overrides)
 
 
-def parse_point(raw_point: str, base_tracker: str) -> SweepPoint:
+def parse_point(raw_point: str, base_tracker: str, slug_prefix: str = "assoc") -> SweepPoint:
     """Validate and canonicalize a comma-separated list of ``NAME=VALUE`` pairs.
 
     Value typing and upstream-setting validation deliberately remain in the
@@ -68,7 +68,7 @@ def parse_point(raw_point: str, base_tracker: str) -> SweepPoint:
 
     canonical = tuple(sorted(overrides))
     digest = hashlib.sha256(",".join(canonical).encode("utf-8")).hexdigest()[:12]
-    tracker = f"{base_tracker}-assoc-{digest}"
+    tracker = f"{base_tracker}-{slug_prefix}-{digest}"
     validate_slug(tracker, "derived tracker")
     return SweepPoint(overrides=canonical, tracker=tracker)
 
@@ -86,6 +86,13 @@ def parse_args() -> argparse.Namespace:
         help="repeatable association point; values are validated by run_boosttrack.py",
     )
     parser.add_argument("--split", default="val_half")
+    parser.add_argument(
+        "--slug-prefix",
+        default="assoc",
+        help="infix in the derived tracker slug, naming what the sweep varies. "
+        "Defaults to 'assoc' so existing association-sweep artifact paths resolve unchanged; "
+        "use e.g. 'dt' for a det_thresh sweep so the two are distinguishable on disk",
+    )
     parser.add_argument("--artifact-root", default="artifacts/tracking")
     parser.add_argument("--cores", type=int, default=8, help="TrackEval worker count")
     parser.add_argument(
@@ -174,11 +181,15 @@ def main() -> None:
     validate_slug(args.detector, "detector")
     validate_slug(args.reid, "reid")
     validate_slug(args.base_tracker, "base tracker")
+    validate_slug(args.slug_prefix, "slug prefix")
     if args.cores < 1:
         raise SystemExit("--cores must be at least 1")
 
     try:
-        points = [parse_point(raw_point, args.base_tracker) for raw_point in args.point]
+        points = [
+            parse_point(raw_point, args.base_tracker, args.slug_prefix)
+            for raw_point in args.point
+        ]
     except ValueError as error:
         raise SystemExit(f"invalid --point: {error}") from error
     if len({point.tracker for point in points}) != len(points):
