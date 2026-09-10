@@ -16,7 +16,7 @@ from typing import Any, Literal
 
 MOT20_IGNORED_PERSON_CLASSES = frozenset({2, 7, 8, 12})
 MOT20_NON_PERSON_CLASSES = frozenset({3, 4, 5, 6, 9, 10, 11})
-MOT20_SPLIT = Literal["train_half", "val_half"]
+MOT20_SPLIT = Literal["train_half", "val_half", "full"]
 CROWDHUMAN_SPLIT = Literal["train", "val"]
 CONVERSION_REVISION = "mot20-rfdetr-coco-v2"
 
@@ -30,8 +30,13 @@ def convert_mot20_split(dataset_root: Path, split: MOT20_SPLIT) -> dict[str, Any
     ByteTrack's ``confidence == 1`` and ``class_id == 1`` filter. Its ignored
     person classes are retained as ``iscrowd`` so the project loss extension can
     remove their overlapping unmatched queries from classification supervision.
+
+    ``full`` is not a ByteTrack split. It covers every frame of every sequence,
+    so ``train_half`` and ``val_half`` partition it exactly. It exists to score
+    detectors over whole sequences; note that a model trained on either half is
+    contaminated with respect to it.
     """
-    if split not in ("train_half", "val_half"):
+    if split not in ("train_half", "val_half", "full"):
         raise ValueError(f"unsupported MOT20 split: {split}")
     dataset_root = Path(dataset_root)
     if not dataset_root.is_dir():
@@ -528,6 +533,205 @@ def build_i4_competition_train_manifest(
     return manifest
 
 
+def convert_mot20_test_split(dataset_root: Path) -> dict[str, Any]:
+    """Convert the MOT20 *test* split to an annotation-free COCO manifest.
+
+    MOT20 test ships no ``gt/``, so this manifest carries images and zero
+    annotations. That is the same shape ByteTrack used for its MOT20 test
+    inference (``val_ann = "test.json"``, an annotation-free file), and it is
+    what lets the detector run through the library's validation loop — the only
+    path that reproduces training geometry exactly.
+
+    Two consequences follow and are recorded in the metadata rather than left
+    to the caller to remember:
+
+    - No metric computed against this manifest means anything. COCO evaluation
+      over zero ground-truth boxes returns a degenerate value, not a score.
+      Only the MOTChallenge server can score this split.
+    - Unlike ``val_half``, test frames appear in no training manifest this
+      repository has built, so predictions on it are genuinely held out.
+
+    Test sequences do not share a resolution (MOT20-04 is 1545x1080 while
+    MOT20-06 and MOT20-08 are 1920x734), so each image's size is taken from its
+    own sequence and verified against the file on disk.
+    """
+    dataset_root = Path(dataset_root)
+    if not dataset_root.is_dir():
+        raise ValueError(f"MOT20 dataset root is not a directory: {dataset_root}")
+
+    images: list[dict[str, Any]] = []
+    videos: list[dict[str, Any]] = []
+    sequence_frame_ranges: dict[str, dict[str, int]] = {}
+    image_id = 0
+
+    sequence_roots = sorted(path for path in dataset_root.iterdir() if path.is_dir())
+    for video_id, sequence_root in enumerate(sequence_roots, start=1):
+        sequence = _read_mot20_sequence(sequence_root)
+        if sequence["gt_path"].exists():
+            raise ValueError(
+                f"{sequence['name']} has ground truth at {sequence['gt_path']}; "
+                "this converter is for the annotation-free test split only"
+            )
+        sequence_frame_ranges[sequence["name"]] = {"start": 1, "stop": sequence["length"]}
+        videos.append({"id": video_id, "file_name": sequence["name"]})
+        for frame_id in range(1, sequence["length"] + 1):
+            image_path = sequence["image_dir"] / f"{frame_id:06d}.jpg"
+            if not image_path.is_file():
+                raise ValueError(f"missing MOT20 image: {image_path}")
+            if _image_size(image_path) != (sequence["width"], sequence["height"]):
+                raise ValueError(f"MOT20 image dimensions do not match seqinfo: {image_path}")
+            image_id += 1
+            images.append(
+                {
+                    "id": image_id,
+                    "file_name": f"{sequence['name']}/img1/{frame_id:06d}.jpg",
+                    "width": sequence["width"],
+                    "height": sequence["height"],
+                    "video_id": video_id,
+                    "frame_id": frame_id,
+                    "source_dataset": "MOT20",
+                    "source_sequence": sequence["name"],
+                    "source_frame_id": frame_id,
+                    "split": "test",
+                }
+            )
+
+    if not images:
+        raise ValueError(f"no MOT20 sequences found under {dataset_root}")
+    return {
+        "images": images,
+        "annotations": [],
+        "videos": videos,
+        "categories": [{"id": 1, "name": "pedestrian"}],
+        "metadata": {
+            "format": "mot20.rfdetr.coco.v1",
+            "conversion_revision": CONVERSION_REVISION,
+            "source": "MOT20",
+            "split": "test",
+            "annotation_free": True,
+            "ground_truth_available": False,
+            "locally_scoreable": False,
+            "scoring": "MOTChallenge evaluation server only",
+            "held_out_from_all_training_manifests": True,
+            "sequence_frame_ranges": sequence_frame_ranges,
+        },
+    }
+
+
+def assemble_rfdetr_inference_dataset(
+    dataset_root: Path,
+    valid_manifest: dict[str, Any],
+    sequence_roots: dict[str, Path],
+) -> None:
+    """Build an inference-only COCO layout whose ``valid`` split is the target.
+
+    The RF-DETR data module resolves both splits from ``dataset_dir``, so a
+    formal empty ``train`` manifest is written alongside. It is never iterated:
+    the detector is only ever run here through ``evaluate(split="val")``.
+
+    Each sequence is symlinked under ``valid/`` at the name its manifest
+    ``file_name`` entries use, so image paths resolve without copying frames.
+    """
+    dataset_root = Path(dataset_root)
+    if dataset_root.exists():
+        raise FileExistsError(f"refusing to overwrite existing RF-DETR dataset: {dataset_root}")
+    if valid_manifest.get("annotations"):
+        raise ValueError("inference datasets are annotation-free; this manifest carries annotations")
+    train_manifest = {
+        "images": [],
+        "annotations": [],
+        "videos": [],
+        "categories": [{"id": 1, "name": "pedestrian"}],
+        "metadata": {
+            "format": "mot20.rfdetr.coco.v1",
+            "conversion_revision": CONVERSION_REVISION,
+            "source": "inference-only placeholder",
+            "split": "inference_placeholder",
+            "note": "never iterated; evaluate(split='val') reads the valid split only",
+        },
+    }
+    _validate_categories((train_manifest, valid_manifest))
+    roots = {name: Path(path) for name, path in sequence_roots.items()}
+    if not roots or any(not name or Path(name).name != name for name in roots):
+        raise ValueError("inference sequence roots require simple non-empty names")
+    if not all(path.is_dir() for path in roots.values()):
+        raise ValueError("all inference sequence roots must be directories")
+    expected = {Path(image["file_name"]).parts[0] for image in valid_manifest["images"]}
+    if expected != set(roots):
+        raise ValueError(
+            f"sequence roots {sorted(roots)} do not match manifest prefixes {sorted(expected)}"
+        )
+
+    train_root = dataset_root / "train"
+    valid_root = dataset_root / "valid"
+    train_root.mkdir(parents=True)
+    valid_root.mkdir()
+    for name, source_root in roots.items():
+        _link_directory(valid_root / name, source_root)
+    write_coco_manifest(train_manifest, train_root / "_annotations.coco.json")
+    write_coco_manifest(valid_manifest, valid_root / "_annotations.coco.json")
+
+
+def assemble_rfdetr_evaluation_dataset(
+    dataset_root: Path,
+    valid_manifest: dict[str, Any],
+    sequence_roots: dict[str, Path],
+) -> None:
+    """Build a scorable COCO layout whose ``valid`` split carries annotations.
+
+    The annotation-free sibling ``assemble_rfdetr_inference_dataset`` exists for
+    MOT20 test, which ships no public ground truth. This one is for splits that
+    do have it, so ``evaluate(split="val")`` reports real mAP instead of the
+    ``-1.0`` sentinels, and ``analyze_detections.py`` can read the same
+    ``valid/_annotations.coco.json`` the detections were captured against.
+
+    As there, a formal empty ``train`` manifest is written because the RF-DETR
+    data module resolves both splits from ``dataset_dir``; it is never iterated.
+    Sequences are symlinked, not copied.
+    """
+    dataset_root = Path(dataset_root)
+    if dataset_root.exists():
+        raise FileExistsError(f"refusing to overwrite existing RF-DETR dataset: {dataset_root}")
+    if not valid_manifest.get("annotations"):
+        raise ValueError(
+            "evaluation datasets must carry annotations; "
+            "use assemble_rfdetr_inference_dataset for annotation-free splits"
+        )
+    train_manifest = {
+        "images": [],
+        "annotations": [],
+        "videos": [],
+        "categories": [{"id": 1, "name": "pedestrian"}],
+        "metadata": {
+            "format": "mot20.rfdetr.coco.v1",
+            "conversion_revision": CONVERSION_REVISION,
+            "source": "evaluation-only placeholder",
+            "split": "evaluation_placeholder",
+            "note": "never iterated; evaluate(split='val') reads the valid split only",
+        },
+    }
+    _validate_categories((train_manifest, valid_manifest))
+    roots = {name: Path(path) for name, path in sequence_roots.items()}
+    if not roots or any(not name or Path(name).name != name for name in roots):
+        raise ValueError("evaluation sequence roots require simple non-empty names")
+    if not all(path.is_dir() for path in roots.values()):
+        raise ValueError("all evaluation sequence roots must be directories")
+    expected = {Path(image["file_name"]).parts[0] for image in valid_manifest["images"]}
+    if expected != set(roots):
+        raise ValueError(
+            f"sequence roots {sorted(roots)} do not match manifest prefixes {sorted(expected)}"
+        )
+
+    train_root = dataset_root / "train"
+    valid_root = dataset_root / "valid"
+    train_root.mkdir(parents=True)
+    valid_root.mkdir()
+    for name, source_root in roots.items():
+        _link_directory(valid_root / name, source_root)
+    write_coco_manifest(train_manifest, train_root / "_annotations.coco.json")
+    write_coco_manifest(valid_manifest, valid_root / "_annotations.coco.json")
+
+
 def formal_empty_competition_valid_manifest() -> dict[str, Any]:
     """Return the required no-selection validation manifest for I4 competition training."""
     return {
@@ -783,6 +987,8 @@ def _read_mot20_sequence(sequence_root: Path) -> dict[str, Any]:
 
 
 def _mot20_half_bounds(length: int, split: MOT20_SPLIT) -> tuple[int, int]:
+    if split == "full":
+        return (1, length)
     split_frame = length // 2 + 1
     return (1, split_frame) if split == "train_half" else (split_frame + 1, length)
 
